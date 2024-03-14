@@ -162,11 +162,14 @@ class UC8151:
         self.raw_fb = bytearray(128*296//8)
         self.fb = framebuf.FrameBuffer(self.raw_fb,128,296,framebuf.MONO_HLSB)
 
-    # While till the BUSY pin is high (chip no longer busy), and
-    # the chip completed its operation.
+    # Return true if the display is busy performing an update, or also
+    # if for any other reason it is not able to accept commands right now.
+    def is_busy(self):
+        return self.busy.value() == False # Low on busy condition.
+
     def wait_ready(self):
         if self.busy == None: return
-        while not self.busy.value(): pass
+        while self.is_busy(): pass
 
     # Perform hardware reset.
     def reset(self):
@@ -191,6 +194,8 @@ class UC8151:
 
     def initialize_display(self):
         self.reset()
+
+        # Panel configuration: resolution, format and so forth.
         psr_settings = RES_128x296 | FORMAT_BW | BOOSTER_ON | RESET_NONE
         # If we select the default update speed, we will use the
         # lookup tables defined by the device. Otherwise the values for
@@ -200,16 +205,22 @@ class UC8151:
         else:
             psr_settings |= LUT_REG
 
+        # Configure mirroring.
         psr_settings |= SHIFT_LEFT if self.mirror_x else SHIFT_RIGHT
         psr_settings |= SCAN_DOWN if self.mirror_y else SCAN_UP
 
         self.write(CMD_PSR,psr_settings)
+
+        # Here we set the voltage levels that are used for the low-high
+        # transitions states, driven by the waveforms provided in the
+        # lookup tables for refresh.
         self.write(CMD_PWR, \
             [VDS_INTERNAL|VDG_INTERNAL,
              VCOM_VD|VGHL_16V,
-             0b101011,
-             0b101011,
-             0b101011])
+             0b101011, # +11v VDH
+             0b101011, # -11v VDL
+             0b101011  # +11v VDHR (this is VDH for red pixels)
+             ])
         self.write(CMD_PON)
         self.wait_ready()
 
@@ -219,20 +230,57 @@ class UC8151:
              START_10MS | STRENGTH_3 | OFF_6_58US,
              START_10MS | STRENGTH_3 | OFF_6_58US])
 
+        # Setup the duration (in frames) for the discharge executed for
+        # power-off. This is useful to left the pixels in a "stable"
+        # configuration.
         self.write(CMD_PFS,FRAMES_1)
+
+        # Use the internal temperature sensor.
         self.write(CMD_TSE,TEMP_INTERNAL | OFFSET_0)
+
+        # Set non overlapping period for Gate and Source lines.
+        # TCON set to 22 means 12 periods (1 period is 660ns) for
+        # both S->G and G->S transition.
         self.write(CMD_TCON,0x22)
+
+        # VCOM data and interval settings. We can use this register in order
+        # to invert the display so that black is white and white is black,
+        # without resorting to software changes.
         self.write(CMD_CDI,0b10_01_1100 if self.inverted else 0b01_00_1100)
+
+        # PLL clock frequency
         self.write(CMD_PLL,HZ_100)
-        self.write(CMD_PON)
+
+        # Power off the display. We will pover it on again on the
+        # next update of the image.
+        self.write(CMD_POF)
         self.wait_ready()
 
-    def update(self):
-        self.write(CMD_PON)
-        self.write(CMD_PTOU)
-        self.write(CMD_DTM2,self.raw_fb)
-        self.write(CMD_DSP)
-        self.write(CMD_DRF) # Refresh
+    # Wait for the display to return back able to accept commands
+    # (if it is updating the display it remains busy), and switch
+    # it off once it is possible.
+    def wait_and_switch_off(self):
+        self.wait_ready()
+        self.write(CMD_POF)
+
+    # Update the screen with the current image in the framebuffer.
+    # If blocking is True, it the function blocks until the update
+    # is complete and powers the display off. Otherwise the display
+    # will remain powered on, and can be turned off later with
+    # wait_and_switch_off().
+    #
+    # The function returns False and does nothing in case the
+    # blocking argument is False but there is an update already
+    # in progress. Otherwise True is returned.
+    def update(self,blocking=False):
+        if blocking == False and self.is_busy(): return False
+        self.write(CMD_PON) # Power on
+        self.write(CMD_PTOU) # Partial mode off
+        self.write(CMD_DTM2,self.raw_fb) # Start data transfer
+        self.write(CMD_DSP) # End of data
+        self.write(CMD_DRF) # Start refresh cycle.
+        if blocking: self.wait_and_switch_off()
+        return True
 
 if  __name__ == "__main__":
     from machine import SPI
@@ -241,4 +289,4 @@ if  __name__ == "__main__":
     eink.fb.ellipse(10,10,10,10,1)
     eink.fb.ellipse(50,50,10,10,1)
     eink.fb.text("SUKA",80,80,1)
-    eink.update()
+    eink.update(blocking=True)
