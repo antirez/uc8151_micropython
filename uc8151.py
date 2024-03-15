@@ -148,6 +148,7 @@ class UC8151:
     UPDATE_SPEED_FAST=const(2)
     UPDATE_SPEED_TURBO=const(3)
     UPDATE_SPEED_ULTRA=const(4)
+    UPDATE_SPEED_ULTRA_NO_FLICKERING=const(5)
 
     def __init__(self,spi,*,cs,dc,rst,busy,speed=UPDATE_SPEED_DEFAULT,mirror_x=False,mirror_y=False,inverted=False):
         self.spi = spi
@@ -223,10 +224,10 @@ class UC8151:
         # CMD_VDCS is not given.
         self.write(CMD_PWR, \
             [VDS_INTERNAL|VDG_INTERNAL,
-             VCOM_VD|VGHL_16V,
+             VCOM_VD|VGHL_16V, # VCOM_VD sets VCOM voltage to VD[HL]+VCOM_DC
              0b101011, # +11v VDH
              0b101011, # -11v VDL
-             0b101011  # +11v VDHR (this is VDH for red pixels)
+             0b101011  # +11v VDHR (this is VDH for red pixels, not used here)
              ])
         self.write(CMD_PON)
         self.wait_ready()
@@ -239,14 +240,15 @@ class UC8151:
 
         # Setup the duration (in frames) for the discharge executed for
         # power-off. This is useful to left the pixels in a "stable"
-        # configuration.
+        # configuration. One frame means 10 milliseconds at 100 HZ.
         self.write(CMD_PFS,FRAMES_1)
 
-        # Use the internal temperature sensor.
+        # Use the internal temperature sensor. Unfortunately there is
+        # no input line connected, so we can't read the temperature.
         self.write(CMD_TSE,TEMP_INTERNAL | OFFSET_0)
 
         # Set non overlapping period for Gate and Source lines.
-        # TCON set to 22 means 12 periods (1 period is 660ns) for
+        # TCON set to 0x22 means 12 periods (1 period is 660ns) for
         # both S->G and G->S transition.
         self.write(CMD_TCON,0x22)
 
@@ -255,34 +257,43 @@ class UC8151:
         # without resorting to software changes.
         self.write(CMD_CDI,0b10_01_1100 if self.inverted else 0b01_00_1100)
 
-        # PLL clock frequency
+        # PLL clock frequency. Setting it to 100 HZ means that each
+        # "frame" in the counts in the refresh waveforms lookup tables will
+        # last 10 milliseconds. Certain drivers set it to 200 HZ for the fast
+        # modes, but in my tests it does not work well at all, so we take
+        # it to a fixed 100 HZ.
         self.write(CMD_PLL,HZ_100)
 
-        # Power off the display. We will pover it on again on the
+        # Power off the display. We will pover on it again on the
         # next update of the image.
         self.write(CMD_POF)
         self.wait_ready()
 
     # Set the lookup tables used during the display refresh.
     # We have a table for each transition possibile:
-    # white -> white
-    # white -> black
-    # black -> black
-    # black -> white
+    # white -> white (WW)
+    # white -> black (WB)
+    # black -> black (BB)
+    # black -> white (BW)
     # and a final table that controls the VCOM voltage.
     #
-    # The update process happens in phases, each 6 rows of each
+    # The update process happens in phases, each 7 rows of each
     # table tells the display how to set each pixel based on the
-    # transition (WW, WB, BB, BW) and VCOM in each phase.
-    # VCOM is different and explained later, but for the first four
-    # tables, this is how to interpret them. For instance the
-    # lookup for WW in turbo speed has the first phase set to:
+    # transition (WW, WB, BB, BW) and VCOM in each phase. Usually just
+    # three or two phases are used.
     #
-    # 0x54, 0x01, 0x01, 0x02, 0x00, 0x01
+    # VCOM table is different and explained later, but for the first four
+    # tables, this is how to interpret them. For instance the
+    # lookup for WW in the second row (phase 1) could be set to:
+    #
+    # 0x60, 0x02, 0x02, 0x00, 0x00, 0x01 -> last byte = repeat count
+    #  \     |      |    |     |
+    #   \    +------+----+-----+-> number of frames
+    #    \_ four transitions
     #
     # The first byte must be read as four two bits integers:
     #
-    # 0x54 is: 01|01|01|00
+    # 0x60 is: 01|10|00|00
     #
     # Where each 2 bit number menas:
     # 00 - Put to ground
@@ -291,27 +302,44 @@ class UC8151:
     # 11 - Not used.
     #
     # Then the next four bytes in the row mean how many
-    # "frames" (the refresh tick time, less than 1ms) we
-    # hold a given state.
-    # So in the above case: hold pixel at VDH for 1 frame, then
-    # again VDH for 1 frame, and again, the last entry says 0 frames
-    # so it's not used. The final number in the row, 0x01, means
+    # "frames" (the refresh tick time: depends on the frequency set,
+    # here we configure 100 HZ so 10ms) we hold a given state.
+    # So in the above case: hold pixel at VDH for 2 frames, then
+    # again VDL for 2 frame. The last two entries says 0 frames,
+    # so they are not used. The final byte in the row, 0x01, means
     # that this sequence must be repeated just once. If it was 2
-    # the sequence would repeat 2 times and so forth.
+    # the whole sequence would repeat 2 times and so forth.
     #
     # The VCOM table is similar, but the bits meaning is different:
-    # 00 - Put VCOM to VCM_DC voltage
-    # 01 - Put VCOM to VDH+VCM_DC voltage (see PWR register config)
-    # 10 - Put VCOM to VDL+VCM_DC voltage
+    # 00 - Put VCOM to VCOM_DC voltage
+    # 01 - Put VCOM to VDH+VCOM_DC voltage (see PWR register config)
+    # 10 - Put VCOM to VDL+VCOM_DC voltage
     # 11 - Floating
     #
-    # The meaning of the additional two bytes in the VCOM table
-    # apparently is the following (but I'm not sure what it means):
-    # first additional byte: ST_XON, if a (1<<phase) bit is set, for the 
+    # The VCOM table has two additional bytes at the end.
+    # The meaning of these bytes apparently is the following (but I'm not
+    # really sure what it means):
+    # 
+    # First additional byte: ST_XON, if (1<<phase) bit is set, for
     # that phase all gates are on. Second byte: ST_CHV. Like ST_XON
-    # but if a bit is set VCOM voltage is set to high for this phase.
+    # but if (1<<phase) bit is set, VCOM voltage is set to high for this phase.
+    #
+    # However they are set to 0 in all the LUTs I saw, so they are generally
+    # not used and we don't use it either.
     def set_waveform_lut(self):
-        if self.speed == UPDATE_SPEED_DEFAULT: return
+        if self.speed == UPDATE_SPEED_DEFAULT:
+            # For the default speed, we don't set any LUT, but resort
+            # to the one inside the device. __init__() will take care
+            # to tell the chip to use internal LUTs by setting the right
+            # PSR field to LUT_OTP.
+            return
+
+        # Most profiles will not set white->white and black->black
+        # tansition waveforms, in this case we will use the same
+        # as black->white and white->black, as the final color of the
+        # pixel is the same.
+        WW = None
+        BB = None
 
         if self.speed == UPDATE_SPEED_MEDIUM:
             VCOM = bytes([
@@ -324,7 +352,7 @@ class UC8151:
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00
             ])
-            WHITE = bytes([
+            BW = bytes([
 0x54, 0x16, 0x16, 0x0d, 0x00, 0x01,
 0x60, 0x23, 0x23, 0x00, 0x00, 0x02,
 0xa8, 0x16, 0x16, 0x0d, 0x00, 0x01,
@@ -333,7 +361,7 @@ class UC8151:
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
             ])
-            BLACK = bytes([
+            WB = bytes([
 0xa8, 0x16, 0x16, 0x0d, 0x00, 0x01,
 0x60, 0x23, 0x23, 0x00, 0x00, 0x02,
 0x54, 0x16, 0x16, 0x0d, 0x00, 0x01,
@@ -353,7 +381,7 @@ class UC8151:
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00
             ])
-            WHITE = bytes([
+            BW = bytes([
 0x40, 0x17, 0x00, 0x00, 0x00, 0x02,
 0x90, 0x17, 0x17, 0x00, 0x00, 0x02,
 0x40, 0x0A, 0x01, 0x00, 0x00, 0x01,
@@ -362,7 +390,7 @@ class UC8151:
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             ])
-            BLACK = bytes([
+            WB = bytes([
 0x80, 0x17, 0x00, 0x00, 0x00, 0x02,
 0x90, 0x17, 0x17, 0x00, 0x00, 0x02,
 0x80, 0x0A, 0x01, 0x00, 0x00, 0x01,
@@ -382,7 +410,7 @@ class UC8151:
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00
             ])
-            WHITE = bytes([
+            BW = bytes([
       0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
       0x60, 0x02, 0x02, 0x00, 0x00, 0x02,
       0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
@@ -391,7 +419,7 @@ class UC8151:
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00
             ])
-            BLACK = bytes([
+            WB = bytes([
       0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
       0x60, 0x02, 0x02, 0x00, 0x00, 0x02,
       0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
@@ -411,7 +439,7 @@ class UC8151:
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00
             ])
-            WHITE = bytes([
+            BW = bytes([
       0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
       0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -420,7 +448,7 @@ class UC8151:
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00
             ])
-            BLACK = bytes([
+            WB = bytes([
       0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
       0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -429,12 +457,62 @@ class UC8151:
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00
             ])
+        elif self.speed == UPDATE_SPEED_ULTRA_NO_FLICKERING:
+            VCOM = bytes([
+      0x00, 0x01, 0x01, 0x02, 0x00, 0x01,
+      0x00, 0x02, 0x02, 0x03, 0x00, 0x02,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00
+            ])
+            WW = bytes([
+      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ])
+            BW = bytes([
+      0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
+      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ])
+            WB = bytes([
+      0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
+      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ])
+            BB = bytes([
+      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ])
+
+        if WW == None: WW = BW
+        if BB == None: BB = WB
 
         self.write(CMD_LUT_VCOM,VCOM)
-        self.write(CMD_LUT_WW,WHITE)
-        self.write(CMD_LUT_BW,WHITE)
-        self.write(CMD_LUT_BB,BLACK)
-        self.write(CMD_LUT_WB,BLACK)
+        self.write(CMD_LUT_WW,WW)
+        self.write(CMD_LUT_BW,BW)
+        self.write(CMD_LUT_BB,BB)
+        self.write(CMD_LUT_WB,WB)
 
     # Wait for the display to return back able to accept commands
     # (if it is updating the display it remains busy), and switch
@@ -467,7 +545,7 @@ if  __name__ == "__main__":
     import random
 
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
-    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=UPDATE_SPEED_ULTRA)
+    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=UPDATE_SPEED_ULTRA_NO_FLICKERING)
     eink.fb.ellipse(10,10,10,10,1)
     eink.fb.ellipse(50,50,10,10,1)
 
@@ -475,6 +553,8 @@ if  __name__ == "__main__":
         x = random.randrange(100)
         y = random.randrange(100)
         eink.fb.text("TEST",x,y,1)
+        eink.fb.ellipse(x,y,50,30,1)
+        eink.fb.fill_rect(x,y+50,50,50,1)
         start = time.ticks_ms()
         eink.update(blocking=True)
         eink.fb.fill(0)
