@@ -413,8 +413,8 @@ class UC8151:
         hperiod = period//2   # Num. of frames for back-and-forth change.
         
         # Actual period is scaled by the speed factor
-        period = max(period >> (self.speed-1), 1)
-        hperiod = max(hperiod >> (self.speed-1), 1)
+        period = int(max(period / (2**(self.speed-1)), 1))
+        hperiod = int(max(hperiod / (2**(self.speed-1)), 1))
 
         # Setup three (or two) steps.
         # For all the steps, VCOM is just taken at VCOM_DC,
