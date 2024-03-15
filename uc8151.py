@@ -423,25 +423,26 @@ class UC8151:
         # so the VCOM pattern is always 0.
 
         row = 0
-        # Step 0: reverse pixel color compared to the target color for
-        # a given period.
-        self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
-        self.set_lut_row(BW,row,pat=0x40,dur=[period,0,0,0],rep=1)
-        self.set_lut_row(WB,row,pat=0x80,dur=[period,0,0,0],rep=1)
-        row += 1
-        if self.no_flickering == False:
+        if self.speed < 4:
+            # Step 0: reverse pixel color compared to the target color for
+            # a given period.
+            self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
+            self.set_lut_row(BW,row,pat=0x40,dur=[period,0,0,0],rep=1)
+            self.set_lut_row(WB,row,pat=0x80,dur=[period,0,0,0],rep=1)
+            row += 1
+        if self.no_flickering == False or self.speed >= 4:
             # Step 1: reverse pixel color for half period, back to the color
             # the pixel should have. Repeat two times. This step is skipped
             # if anti flickering is no.
-            self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=2)
-            self.set_lut_row(BW,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=2)
-            self.set_lut_row(WB,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=2)
+            rep = 1 if self.speed >= 4 else 2
+            self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=rep)
+            self.set_lut_row(BW,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=rep)
+            self.set_lut_row(WB,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=rep)
             row += 1
         # Step 2: Finally set the target color for a full period.
         # Note that we want to repeat this cycle twice if we are going
         # fast or we skipped the ping-pong step.
         rep = 2 if self.speed > 3 or self.no_flickering else 1
-        if self.speed >= 5: rep = 3
         self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(WB,row,pat=0x40,dur=[period,0,0,0],rep=rep)
