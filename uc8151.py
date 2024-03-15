@@ -143,20 +143,14 @@ HZ_100     = const(0b00111010)
 HZ_200     = const(0b00111001)
 
 class UC8151:
-    UPDATE_SPEED_DEFAULT=const(0)
-    UPDATE_SPEED_MEDIUM=const(1)
-    UPDATE_SPEED_FAST=const(2)
-    UPDATE_SPEED_TURBO=const(3)
-    UPDATE_SPEED_ULTRA=const(4)
-    UPDATE_SPEED_ULTRA_NO_FLICKERING=const(5)
-
-    def __init__(self,spi,*,cs,dc,rst,busy,speed=UPDATE_SPEED_DEFAULT,mirror_x=False,mirror_y=False,inverted=False):
+    def __init__(self,spi,*,cs,dc,rst,busy,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False):
         self.spi = spi
         self.cs = Pin(cs,Pin.OUT) if cs != None else None
         self.dc = Pin(dc,Pin.OUT) if dc != None else None
         self.rst = Pin(rst,Pin.OUT) if rst != None else None
         self.busy = Pin(busy,Pin.IN) if busy != None else None
         self.speed = speed
+        self.no_flickering = no_flickering
         self.inverted = inverted
         self.mirror_x = mirror_x
         self.mirror_y = mirror_y
@@ -202,7 +196,7 @@ class UC8151:
         # If we select the default update speed, we will use the
         # lookup tables defined by the device. Otherwise the values for
         # the lookup tables must be read from the registers we set.
-        if self.speed == UPDATE_SPEED_DEFAULT:
+        if self.speed == 0:
             psr_settings |= LUT_OTP
         else:
             psr_settings |= LUT_REG
@@ -277,14 +271,14 @@ class UC8151:
     # black -> white (BW)
     # and a final table that controls the VCOM voltage.
     #
-    # The update process happens in phases, each 7 rows of each
+    # The update process happens in steps, each 7 rows of each
     # table tells the display how to set each pixel based on the
-    # transition (WW, WB, BB, BW) and VCOM in each phase. Usually just
-    # three or two phases are used.
+    # transition (WW, WB, BB, BW) and VCOM in each step. Usually just
+    # three or two steps are used.
     #
     # VCOM table is different and explained later, but for the first four
     # tables, this is how to interpret them. For instance the
-    # lookup for WW in the second row (phase 1) could be set to:
+    # lookup for WW in the second row (step 1) could be set to:
     #
     # 0x60, 0x02, 0x02, 0x00, 0x00, 0x01 -> last byte = repeat count
     #  \     |      |    |     |
@@ -297,13 +291,14 @@ class UC8151:
     #
     # Where each 2 bit number menas:
     # 00 - Put to ground
-    # 01 - Put to VDH voltage (11v in our config)
-    # 10 - Put to VDL voltage (-11v in our config)
-    # 11 - Not used.
+    # 01 - Put to VDH voltage (11v in our config): pixel becomes black
+    # 10 - Put to VDL voltage (-11v in our config): pixel becomes white
+    # 11 - Floating / Not used.
     #
     # Then the next four bytes in the row mean how many
-    # "frames" (the refresh tick time: depends on the frequency set,
-    # here we configure 100 HZ so 10ms) we hold a given state.
+    # "frames" we hold a given state (the frame duration depends on the
+    # frequency set in the PLL, here we configure it to 100 HZ so 10ms).
+    # 
     # So in the above case: hold pixel at VDH for 2 frames, then
     # again VDL for 2 frame. The last two entries says 0 frames,
     # so they are not used. The final byte in the row, 0x01, means
@@ -314,205 +309,127 @@ class UC8151:
     # 00 - Put VCOM to VCOM_DC voltage
     # 01 - Put VCOM to VDH+VCOM_DC voltage (see PWR register config)
     # 10 - Put VCOM to VDL+VCOM_DC voltage
-    # 11 - Floating
+    # 11 - Floating / Not used.
     #
     # The VCOM table has two additional bytes at the end.
     # The meaning of these bytes apparently is the following (but I'm not
-    # really sure what it means):
+    # really sure what they mean):
     # 
-    # First additional byte: ST_XON, if (1<<phase) bit is set, for
-    # that phase all gates are on. Second byte: ST_CHV. Like ST_XON
-    # but if (1<<phase) bit is set, VCOM voltage is set to high for this phase.
+    # First additional byte: ST_XON, if (1<<step) bit is set, for
+    # that step all gates are on. Second byte: ST_CHV. Like ST_XON
+    # but if (1<<step) bit is set, VCOM voltage is set to high for this step.
     #
     # However they are set to 0 in all the LUTs I saw, so they are generally
     # not used and we don't use it either.
     def set_waveform_lut(self):
-        if self.speed == UPDATE_SPEED_DEFAULT:
+        if self.speed == 0:
             # For the default speed, we don't set any LUT, but resort
             # to the one inside the device. __init__() will take care
             # to tell the chip to use internal LUTs by setting the right
             # PSR field to LUT_OTP.
             return
 
-        # Most profiles will not set white->white and black->black
-        # tansition waveforms, in this case we will use the same
-        # as black->white and white->black, as the final color of the
-        # pixel is the same.
-        WW = None
-        BB = None
+        if self.speed > 6:
+            raise ValueError("Speed must be set between 0 and 6")
 
-        if self.speed == UPDATE_SPEED_MEDIUM:
-            VCOM = bytes([
-0x00, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x00, 0x23, 0x23, 0x00, 0x00, 0x02,
-0x00, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00
-            ])
-            BW = bytes([
-0x54, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x60, 0x23, 0x23, 0x00, 0x00, 0x02,
-0xa8, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            WB = bytes([
-0xa8, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x60, 0x23, 0x23, 0x00, 0x00, 0x02,
-0x54, 0x16, 0x16, 0x0d, 0x00, 0x01,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-        elif self.speed == UPDATE_SPEED_FAST:
-            VCOM = bytes([
-0x40, 0x17, 0x00, 0x00, 0x00, 0x02,
-0x00, 0x17, 0x17, 0x00, 0x00, 0x02,
-0x00, 0x0A, 0x01, 0x00, 0x00, 0x01,
-0x00, 0x0E, 0x0E, 0x00, 0x00, 0x02,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00
-            ])
-            BW = bytes([
-0x40, 0x17, 0x00, 0x00, 0x00, 0x02,
-0x90, 0x17, 0x17, 0x00, 0x00, 0x02,
-0x40, 0x0A, 0x01, 0x00, 0x00, 0x01,
-0xA0, 0x0E, 0x0E, 0x00, 0x00, 0x02,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            ])
-            WB = bytes([
-0x80, 0x17, 0x00, 0x00, 0x00, 0x02,
-0x90, 0x17, 0x17, 0x00, 0x00, 0x02,
-0x80, 0x0A, 0x01, 0x00, 0x00, 0x01,
-0x50, 0x0E, 0x0E, 0x00, 0x00, 0x02,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   
-            ])
-        elif self.speed == UPDATE_SPEED_TURBO:
-            VCOM = bytes([
-      0x00, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x00, 0x02, 0x02, 0x00, 0x00, 0x02,
-      0x00, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00
-            ])
-            BW = bytes([
-      0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x60, 0x02, 0x02, 0x00, 0x00, 0x02,
-      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            WB = bytes([
-      0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x60, 0x02, 0x02, 0x00, 0x00, 0x02,
-      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-        elif self.speed == UPDATE_SPEED_ULTRA:
-            VCOM = bytes([
-      0x00, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x00, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00
-            ])
-            BW = bytes([
-      0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            WB = bytes([
-      0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-        elif self.speed == UPDATE_SPEED_ULTRA_NO_FLICKERING:
-            VCOM = bytes([
-      0x00, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x00, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00
-            ])
-            WW = bytes([
-      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            BW = bytes([
-      0x54, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0xa8, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            WB = bytes([
-      0xa8, 0x01, 0x01, 0x02, 0x00, 0x01,
-      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
-            BB = bytes([
-      0x54, 0x02, 0x02, 0x03, 0x00, 0x02,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            ])
+        # In this driver we try to do things a bit differently and compute
+        # LUTs on the fly depending on the 'speed' requested by the user.
+        # Each successive speed value cuts the display update time in half.
+        #
+        # Moreover, we check if no_flickering was set to True. In this case
+        # we change the LUTs in two ways, with the goal to prevent the
+        # unpleasant color inversion flickering effect:
+        #
+        # 1. The 2 x black-to-white ping-pong is NOT performed.
+        #    This usually is performed to set the display pixels in a
+        #    know state to prevent ghosting, leaving residues and so forth.
+        # 2. Waveforms for white-to-white and black-to-black will avoid
+        #    to invert the pixels at all. We will just set the
+        #    voltage needed to confirm the pixel color.
 
-        if WW == None: WW = BW
-        if BB == None: BB = WB
+        # We use just three tables, as for WHITE->WHITE and BLACK->BLACK
+        # we will reuse the first tables, possibly modifying them on the
+        # fly.
+        VCOM = bytearray(44)
+        BW = bytearray(42)
+        WB = bytearray(42)
+
+        # Those periods are powers of two so that each successive 'speed'
+        # value cuts them in half cleanly.
+        period = 64           # Num. of frames for single direction change.
+        hperiod = period//2   # Num. of frames for back-and-forth change.
+        
+        # Actual period is scaled by the speed factor
+        period = max(period >> (self.speed-1), 1)
+        hperiod = max(hperiod >> (self.speed-1), 1)
+
+        # Setup three (or two) steps.
+        # For all the steps, VCOM is just taken at VCOM_DC,
+        # so the VCOM pattern is always 0.
+
+        row = 0
+        # Step 0: reverse pixel color compared to the target color for
+        # a given period.
+        self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
+        self.set_lut_row(BW,row,pat=0x40,dur=[period,0,0,0],rep=1)
+        self.set_lut_row(WB,row,pat=0x80,dur=[period,0,0,0],rep=1)
+        row += 1
+        if self.no_flickering == False:
+            # Step 1: reverse pixel color for half period, back to the color
+            # the pixel should have. Repeat two times. This step is skipped
+            # if anti flickering is no.
+            self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=2)
+            self.set_lut_row(BW,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=2)
+            self.set_lut_row(WB,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=2)
+            row += 1
+        # Step 2: Finally set the target color for a full period.
+        # Note that we want to repeat this cycle twice if we are going
+        # fast or we skipped the ping-pong step.
+        rep = 2 if self.speed > 3 or self.no_flickering else 1
+        if self.speed >= 5: rep = 3
+        self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
+        self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
+        self.set_lut_row(WB,row,pat=0x40,dur=[period,0,0,0],rep=rep)
 
         self.write(CMD_LUT_VCOM,VCOM)
-        self.write(CMD_LUT_WW,WW)
         self.write(CMD_LUT_BW,BW)
-        self.write(CMD_LUT_BB,BB)
         self.write(CMD_LUT_WB,WB)
+
+        # If no flickering mode is on, for pixels in the same state
+        # as before, we don't perform any inversion.
+        if self.no_flickering:
+            BW[0] = 0x80
+            WB[0] = 0x40
+
+        self.write(CMD_LUT_WW,BW)
+        self.write(CMD_LUT_BB,WB)
+
+
+    # Set a given row in a waveform lookup table.
+    # Lookup tables are 6 rows per 7 cols, like in this
+    # example:
+    #
+    # 0x40, 0x17, 0x00, 0x00, 0x00, 0x02,  <- step 0
+    # 0x90, 0x17, 0x17, 0x00, 0x00, 0x02,  <- step 1
+    # 0x40, 0x0A, 0x01, 0x00, 0x00, 0x01,  <- step 2
+    # 0xA0, 0x0E, 0x0E, 0x00, 0x00, 0x02,  <- step 3
+    # 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  <- step 4
+    # 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  <- step 5
+    # 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  <- step 6
+    #
+    # Fror each step the first byte encodes the 4 patterns, two bits
+    # each. The next 4 bytes the duration in frames. The Final byte
+    # the repetition number. See the top comment of set_waveform_lut()
+    # for more info.
+    def set_lut_row(self,lut,row,pat,dur,rep):
+        if row > 6: raise valueError("LUTs have 7 total rows (0-6)")
+        off = 6*row
+        lut[off] = pat
+        lut[off+1] = dur[0]
+        lut[off+2] = dur[1]
+        lut[off+3] = dur[2]
+        lut[off+4] = dur[3]
+        lut[off+5] = rep
 
     # Wait for the display to return back able to accept commands
     # (if it is updating the display it remains busy), and switch
@@ -545,13 +462,13 @@ if  __name__ == "__main__":
     import random
 
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
-    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=UPDATE_SPEED_ULTRA_NO_FLICKERING)
+    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=5,no_flickering=True)
     eink.fb.ellipse(10,10,10,10,1)
     eink.fb.ellipse(50,50,10,10,1)
 
     for _ in range(10):
         x = random.randrange(100)
-        y = random.randrange(100)
+        y = random.randrange(200)
         eink.fb.text("TEST",x,y,1)
         eink.fb.ellipse(x,y,50,30,1)
         eink.fb.fill_rect(x,y+50,50,50,1)
