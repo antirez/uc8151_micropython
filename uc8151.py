@@ -529,12 +529,48 @@ class UC8151:
         return True
 
     def load_greyscale_image(self,filename):
+        # Configurable parameters: how many frames it takes for a
+        # pixel to reach full black, if we take it at +11v?
+        # How many greys we want to generate?
+
+        greyscale = 12
+       
+        # The frames per grey level (that is function of frames_to_black)
+        # must be carefully calibrated... The respose is HIGHLY NON LINEAR
+        # here. Every update makes the targeted black pixels blacker, but
+        # it also has the effect of kinda making all the non-targeted
+        # pixels a bit brighter: they basically loose a bit of state, because
+        # the WW / BW LUTs are not set at all in the process.
+        #
+        # Now, this "issue" kinda helps us in some way! As initially the
+        # image will be too dark after a few steps, and we want all the
+        # greys to become clearer (cause we don't have this precision
+        # otherwise, because of the non linear response). So a given number
+        # of total steps (greys) map well with a given step size (number of
+        # frames we take the pixels at positive voltage), hence this table:
+        if greyscale == 32:
+            frames_to_black = 180
+        elif greyscale == 24:
+            frames_to_black = 180
+        elif greyscale == 16:
+            frames_to_black = 128
+        elif greyscale == 12:
+            frames_to_black = 100
+        elif greyscale == 8:
+            frames_to_black = 64
+        elif greyscale == 4:
+            frames_to_black = 64
+        else:
+            raise ValueError("Unsupported greyscale setting")
+
+        # Read image data.
         f = open(filename,"rb")
         f.read(4)
         imgdata = bytearray(128*296)
         f.readinto(imgdata)
+        print("Image max luminance:",max(imgdata))
         for i in range(len(imgdata)):
-            imgdata[i] = (255 - imgdata[i]) // 16
+            imgdata[i] = int(((255 - imgdata[i]) / 255) * (greyscale-1))
         self.fb.fill(0)
         self.update(blocking=True)
 
@@ -553,7 +589,7 @@ class UC8151:
         # For black pixels, either new or already on the screen, apply
         # current to go toward black for 10*LUT[1] milliseconds.
         LUT[0] = 0x55 # Go black
-        LUT[1] = 8    # For the time of just a frame
+        LUT[1] = frames_to_black//greyscale # Frames for grey step
         self.write(CMD_LUT_WB,LUT)
         self.write(CMD_LUT_BB,LUT)
 
@@ -564,14 +600,19 @@ class UC8151:
         VCOM[5] = 1
         self.write(CMD_LUT_VCOM,VCOM)
 
-        for g in range(16):
+        for g in range(greyscale):
             self.fb.fill(0)
+            anywork = False
             for i in range(len(imgdata)):
                 if imgdata[i] > 0:
                     self.fb.pixel(i%128,i//128,1)
                     imgdata[i] -= 1
-            print("Updating...")
-            self.update(blocking=True)
+                    anywork = True
+            if anywork:
+                self.update(blocking=True)
+                print("Grey level",g)
+            else:
+                break
 
         # Restore a normal LUT based on configured speed.
         self.set_waveform_lut()
