@@ -528,25 +528,86 @@ class UC8151:
         if blocking: self.wait_and_switch_off()
         return True
 
+    def load_greyscale_image(self,filename):
+        f = open(filename,"rb")
+        f.read(4)
+        imgdata = bytearray(128*296)
+        f.readinto(imgdata)
+        for i in range(len(imgdata)):
+            imgdata[i] = (255 - imgdata[i]) // 16
+        self.fb.fill(0)
+        self.update(blocking=True)
+
+        # After the first update, useful to get the display all white,
+        # we set a waveform only for W/B->B transition, and make it
+        # so brief that it will require many passes on the same pixel
+        # to turn black. So a different number of passes will generate
+        # a different level of grey.
+        LUT = bytearray(42)
+        LUT[5] = 1 # Repeat 1 for all
+
+        # Nothing to do for white pixels.
+        self.write(CMD_LUT_BW,LUT)
+        self.write(CMD_LUT_WW,LUT)
+
+        # For black pixels, either new or already on the screen, apply
+        # current to go toward black for 10*LUT[1] milliseconds.
+        LUT[0] = 0x55 # Go black
+        LUT[1] = 8    # For the time of just a frame
+        self.write(CMD_LUT_WB,LUT)
+        self.write(CMD_LUT_BB,LUT)
+
+        # Minimal VCOM LUT to avoid any unneeded wait.
+        VCOM = bytearray(44)
+        VCOM[0] = 0 # Already zero, just to make it obvious what we select.
+        VCOM[1] = LUT[1]
+        VCOM[5] = 1
+        self.write(CMD_LUT_VCOM,VCOM)
+
+        for g in range(16):
+            self.fb.fill(0)
+            for i in range(len(imgdata)):
+                if imgdata[i] > 0:
+                    self.fb.pixel(i%128,i//128,1)
+                    imgdata[i] -= 1
+            print("Updating...")
+            self.update(blocking=True)
+
+        # Restore a normal LUT based on configured speed.
+        self.set_waveform_lut()
+
 if  __name__ == "__main__":
     from machine import SPI
     import random
 
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
-    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=4.3,no_flickering=True)
-    eink.fb.ellipse(10,10,10,10,1)
-    eink.fb.ellipse(50,50,10,10,1)
+    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.set_handmade_lut()
+    eink.load_greyscale_image("dama.grey")
+    STOP
 
-    random.seed(123)
-    for _ in range(10):
-        x = random.randrange(100)
-        y = random.randrange(200)
-        eink.fb.text("TEST",x,y,1)
-        eink.fb.ellipse(x,y,50,30,1)
-        eink.fb.fill_rect(x,y+50,50,50,1)
-        start = time.ticks_ms()
-        eink.update(blocking=True)
-        eink.fb.fill(0)
-        print("Update time:",time.ticks_ms() - start)
+    #eink.set_handmade_lut()
+
+    for speed in [2,3,4.3,5]:
+        for noflick in [False,True]:
+            # Reconfig
+            eink.speed = speed
+            eink.no_flickering = noflick
+            eink.set_waveform_lut()
+
+            random.seed(123)
+            for _ in range(4):
+                eink.fb.text(f"Speed:{speed}",2,0)
+                eink.fb.text(f"No_Flick:{noflick}",2,10)
+                x = random.randrange(100)
+                y = 80+random.randrange(100)
+                eink.fb.text("TEST",x,y,1)
+                eink.fb.ellipse(x,y,50,30,1)
+                eink.fb.fill_rect(x,y+50,50,50,1)
+                start = time.ticks_ms()
+                eink.update(blocking=True)
+                update_time = time.ticks_ms() - start
+                print("Update time:",update_time)
+                eink.fb.fill(0)
+                eink.fb.text(f"delay MS:{update_time}",10,25)
+                time.sleep(1)
