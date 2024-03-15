@@ -178,6 +178,7 @@ class UC8151:
     # Send just a command, just data, or a command + data, depending
     # on cmd or data being both bytes() / bytearrays() or None.
     def write(self,cmd=None,data=None):
+        self.wait_ready()
         self.cs.off()
         self.dc.off() # Command mode
         self.spi.write(bytes([cmd]))
@@ -190,6 +191,10 @@ class UC8151:
 
     def initialize_display(self):
         self.reset()
+
+        # Soft reset
+        self.write(CMD_PSR,RESET_SOFT)
+        self.wait_ready()
 
         # Panel configuration: resolution, format and so forth.
         psr_settings = RES_128x296 | FORMAT_BW | BOOSTER_ON | RESET_NONE
@@ -216,12 +221,17 @@ class UC8151:
         #
         # The VCOM_DC is left to the default of -0.10v, since
         # CMD_VDCS is not given.
+        #
+        # VDH/VDL are set to what is the chip default: 10v.
+        # There are drivers around using 11v, but I guess given that
+        # everything seems fine with 10v, there is no reason to increase
+        # voltage and current at the risk of damage.
         self.write(CMD_PWR, \
             [VDS_INTERNAL|VDG_INTERNAL,
              VCOM_VD|VGHL_16V, # VCOM_VD sets VCOM voltage to VD[HL]+VCOM_DC
-             0b101011, # +11v VDH
-             0b101011, # -11v VDL
-             0b101011  # +11v VDHR (this is VDH for red pixels, not used here)
+             0b100110, # +10v VDH
+             0b100110, # -10v VDL
+             0b000011  # VDHR default (For red pixels, not used here)
              ])
         self.write(CMD_PON)
         self.wait_ready()
@@ -533,7 +543,7 @@ class UC8151:
         # pixel to reach full black, if we take it at +11v?
         # How many greys we want to generate?
 
-        greyscale = 12
+        greyscale = 16
        
         # The frames per grey level (that is function of frames_to_black)
         # must be carefully calibrated... The respose is HIGHLY NON LINEAR
@@ -580,7 +590,6 @@ class UC8151:
         # to turn black. So a different number of passes will generate
         # a different level of grey.
         LUT = bytearray(42)
-        LUT[5] = 1 # Repeat 1 for all
 
         # Nothing to do for white pixels.
         self.write(CMD_LUT_BW,LUT)
@@ -588,6 +597,7 @@ class UC8151:
 
         # For black pixels, either new or already on the screen, apply
         # current to go toward black for 10*LUT[1] milliseconds.
+        LUT[5] = 1 # Repeat 1 for all
         LUT[0] = 0x55 # Go black
         LUT[1] = frames_to_black//greyscale # Frames for grey step
         self.write(CMD_LUT_WB,LUT)
@@ -624,8 +634,8 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.load_greyscale_image("dama.grey")
-    STOP
+    #eink.load_greyscale_image("dama.grey")
+    #STOP
 
     #eink.set_handmade_lut()
 
