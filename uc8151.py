@@ -391,6 +391,9 @@ class UC8151:
         self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(WB,row,pat=0x40,dur=[period,0,0,0],rep=rep)
 
+        self.show_lut(BW,"BW")
+        self.show_lut(WB,"WB")
+
         self.write(CMD_LUT_VCOM,VCOM)
         self.write(CMD_LUT_BW,BW)
         self.write(CMD_LUT_WB,WB)
@@ -400,6 +403,9 @@ class UC8151:
         if self.no_flickering:
             BW[0] = 0x80
             WB[0] = 0x40
+
+        self.show_lut(BW,"WW")
+        self.show_lut(WB,"BB")
 
         self.write(CMD_LUT_WW,BW)
         self.write(CMD_LUT_BB,WB)
@@ -430,6 +436,15 @@ class UC8151:
         lut[off+3] = dur[2]
         lut[off+4] = dur[3]
         lut[off+5] = rep
+
+    # Show a well-formatted LUT table. Useful for debugging.
+    def show_lut(self,lut,name):
+        print(name,":")
+        for i in range(7):
+            for j in range(6):
+                print(hex(lut[i*6+j]),end=' ')
+            print("")
+        print("---")
 
     # Wait for the display to return back able to accept commands
     # (if it is updating the display it remains busy), and switch
@@ -462,7 +477,7 @@ if  __name__ == "__main__":
     import random
 
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
-    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=5,no_flickering=True)
+    eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=4,no_flickering=True)
     eink.fb.ellipse(10,10,10,10,1)
     eink.fb.ellipse(50,50,10,10,1)
 
