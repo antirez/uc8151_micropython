@@ -560,21 +560,34 @@ class UC8151:
     # Before calling this function, the framebuffer must be already with
     # all the bits set to 0. Just call fb.fill(0) to do this quickly.
     @micropython.viper
-    def set_pixels_for_greyscale(self, grey:ptr8, fb:ptr8, width:int, height:int) -> int:
+    def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int) -> int:
         count = int(width*height)
         anypixel = int(0)
         for i in range(count):
-            if grey[i] > 0:
-                # Pixel that reached level "1" are the only ones at the
-                # current grey level we want to set.
-                if grey[i] == 1:
-                    byte = i >> 3
-                    bit = 1 << (7-(i&7))
-                    fb[byte] |= bit
-                    anypixel = 1
-                # We decrement all the pixels not yet at 0, so successive
-                # level of greys will appear at value "1".
-                grey[i] -= 1
+            # Pixel that reached level "1" are the only ones at the
+            # current grey level we want to set.
+            byte = i >> 3
+            bit = 1 << (7-(i&7))
+
+            if grey[i] == 1:        # WW condition
+                anypixel = 1
+                pass # Both bits at 0
+            elif grey[i] == 2:      # BB condition
+                anypixel = 1
+                fb1[byte] |= bit
+                fb2[byte] |= bit
+            elif grey[i] == 3:      # WB condition
+                anypixel = 1
+                fb1[byte] |= bit
+            else:                   # BW condition, pixels not touched.
+                fb2[byte] |= bit
+
+            # We decrement all the pixels not yet at 0, so successive
+            # level of greys will appear at values 1, 2, 3.
+            if grey[i] > 3:
+                grey[i] -= 3
+            else:
+                grey[i] = 0
         return anypixel
 
     def load_greyscale_image(self,filename):
@@ -582,9 +595,9 @@ class UC8151:
         # 1. How many frames it takes for a pixel to reach full black?
         # 2. How many greys we want to generate?
 
-        greyscale = 32      # Can't be more than 32. Try 32, 16, 8, 4.
+        greyscale = 32 # Can't be more than 32. Try 32, 16, 8, 4.
         frames_to_black = 32
-       
+
         # Read image data.
         f = open(filename,"rb")
         f.read(4)
@@ -599,39 +612,69 @@ class UC8151:
         # Nothing to do for white pixels or already black pixels.
         # Set an empty LUT.
         LUT = bytearray(42)
-        self.write(CMD_LUT_BW,LUT)
-        self.write(CMD_LUT_WW,LUT)
-        self.write(CMD_LUT_BB,LUT)
+        VCOM = bytearray(44)
 
         # Now for each level of grey in the image, create a bitmap composed
         # only of pixels of that level of grey, and create an ad-hoc LUT
         # that polarizes pixels towards black for an amount of time (frames)
         # proportional to the grey level.
-        for g in range(greyscale):
+        for g in range(0,greyscale,3):
             self.fb.fill(0)
+            fb2 = bytearray(self.width*self.height//8)
             # Resort to a faster method in Viper to set the pixels for the
             # current greyscale level.
-            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,self.width,self.height)
+            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height)
             if anypixel:
+                # Transfer the "old" image, so that for difference
+                # with the new we transfer via .update() we create
+                # the four set of conditions (WW, BB, WB, BW) based
+                # on the difference between the bits in the two
+                # images.
+                #
+                # This is a "fake" update that should not do nothing
+                # if not to refresh the display status of what was
+                # previously on the screen, so we set a repeat of 0.
+                LUT[5] = 1 # Repeat 1 for all
+                LUT[0] = 0x55 # Go black
+                LUT[1] = 0 # Zero frames, fake update.
+                VCOM[1] = LUT[1]
+
+                self.write(CMD_LUT_VCOM,VCOM)
+                self.write(CMD_LUT_WW,LUT)
+                self.write(CMD_LUT_BB,LUT)
+                self.write(CMD_LUT_WB,LUT)
+                self.write(CMD_LUT_BW,LUT)
+
+                self.write(CMD_PON) # Power on
+                self.write(CMD_PTOU) # Partial mode off
+                self.write(CMD_DTM2,fb2) # Start data transfer
+                self.write(CMD_DSP) # End of data
+                self.write(CMD_DRF) # Start refresh cycle.
+                self.wait_and_switch_off()
+
                 # We set the framebuffer with just the pixels of the level
                 # of grey we are handling in this cycle, so now we apply
                 # the voltage for a time proportional to this level (see
                 # the setting of LUT[1], that is the number of frames).
-                LUT[5] = 1 # Repeat 1 for all
-                LUT[0] = 0x55 # Go black
                 LUT[1] = int(frames_to_black/greyscale*(g+1))
+                self.write(CMD_LUT_WW,LUT)
+                LUT[1] = int(frames_to_black/greyscale*(g+2))
+                self.write(CMD_LUT_BB,LUT)
+                LUT[1] = int(frames_to_black/greyscale*(g+3))
                 self.write(CMD_LUT_WB,LUT)
+                LUT[1] = 0 # These pixels will be unaffected, none of them
+                           # is of the three colors handled in this cycle.
+                LUT[5] = 0
+                self.write(CMD_LUT_BW,LUT)
 
                 # Minimal VCOM LUT to avoid any unneeded wait.
-                VCOM = bytearray(44)
                 VCOM[0] = 0 # Already zero, just to make it obvious.
-                VCOM[1] = LUT[1]
+                VCOM[1] = int(frames_to_black/greyscale*(g+3))
                 VCOM[5] = 1
                 self.write(CMD_LUT_VCOM,VCOM)
 
-                print("start update grey level",g)
+                # Finally update.
                 self.update(blocking=True)
-                print("end update")
 
         # Restore a normal LUT based on configured speed.
         self.set_waveform_lut()
@@ -643,6 +686,7 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
+    eink.load_greyscale_image("dama.grey")
     eink.load_greyscale_image("hopper.grey")
     STOP
 
