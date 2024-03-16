@@ -610,8 +610,11 @@ class UC8151:
     # of greys in the same update. The image to render should be in
     # 'grey', where each byte maps to a pixel: higher values means
     # a more intense level of grey.
+    #
+    # The three level of greys that this function will match are
+    # given by 'level': from level to level+2 inclusive.
     @micropython.viper
-    def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int) -> int:
+    def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int, level:int) -> int:
         count = int(width*height)
         anypixel = int(0)
         for i in range(count//8):
@@ -624,25 +627,18 @@ class UC8151:
             byte = i >> 3
             bit = 1 << (7-(i&7))
 
-            if grey[i] == 1:        # WW condition
+            if grey[i] == level:        # WW condition
                 anypixel = 1
-                pass # Both bits at 0
-            elif grey[i] == 2:      # BB condition
+                pass
+            elif grey[i] == level+1:    # BB condition
                 anypixel = 1
                 fb1[byte] |= bit
                 fb2[byte] |= bit
-            elif grey[i] == 3:      # WB condition
+            elif grey[i] == level+2:    # WB condition
                 anypixel = 1
                 fb1[byte] |= bit
             else:                   # BW condition, pixels not touched.
                 fb2[byte] |= bit
-
-            # We decrement all the pixels not yet at 0, so successive
-            # level of greys will appear at values 1, 2, 3.
-            if grey[i] > 3:
-                grey[i] -= 3
-            else:
-                grey[i] = 0
         return anypixel
 
     def load_greyscale_image(self,filename):
@@ -686,7 +682,7 @@ class UC8151:
         for g in range(0,greyscale,3):
             # Resort to a faster method in Viper to set the pixels for the
             # current greyscale level.
-            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height)
+            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height,g+1)
             if anypixel:
                 # Transfer the "old" image, so that for difference
                 # with the new we transfer via .update() we create
