@@ -297,6 +297,14 @@ class UC8151:
         self.write(CMD_POF)
         self.wait_ready()
 
+    # This function is only for debugging. We use computed LUTs, however
+    # it is quite handy in order to experiment with different display
+    # capabilities to play with the tables by hand and quickly check the
+    # results. This function should be removed eventually since it uses
+    # a lot of MicroPython memory because of the tables.
+    #
+    # P.S. the currently set LUTs in the tables are just trivial
+    # examples and don't have any special use.
     def set_handmade_lut(self):
         VCOM = bytes([
           0x00, 0x01, 0x01, 0x02, 0x00, 0x01,
@@ -350,18 +358,28 @@ class UC8151:
         self.write(CMD_LUT_BB,BB)
         self.write(CMD_LUT_WW,WW)
 
-    # Set the lookup tables used during the display refresh.
+    # This function (after all this big comment) sets the lookup tables
+    # used during the display refresh. Before reading it, it's a good
+    # idea to understand how LUTs are encoded:
+    #
     # We have a table for each transition possibile:
     # white -> white (WW)
     # white -> black (WB)
     # black -> black (BB)
     # black -> white (BW)
-    # and a final table that controls the VCOM voltage.
+    # and a final table that controls the VCOM common voltage.
     #
     # The update process happens in steps, each 7 rows of each
     # table tells the display how to set each pixel based on the
     # transition (WW, WB, BB, BW) and VCOM in each step. Usually just
     # three or two steps are used.
+    #
+    # When we talk about a "WW" transition or "WB" transition, what we
+    # mean is the difference between the pixel value set in the *last*
+    # display update, and the pixel value of the *current* display update.
+    # So if in the previous update a pixel was white, and later the pixel
+    # turns black, then it's a WB transition and will be handled by the
+    # WB LUT.
     #
     # VCOM table is different and explained later, but for the first four
     # tables, this is how to interpret them. For instance the
@@ -378,8 +396,8 @@ class UC8151:
     #
     # Where each 2 bit number menas:
     # 00 - Put to ground
-    # 01 - Put to VDH voltage (11v in our config): pixel becomes black
-    # 10 - Put to VDL voltage (-11v in our config): pixel becomes white
+    # 01 - Put to VDH voltage (10v in our config): pixel becomes black
+    # 10 - Put to VDL voltage (-10v in our config): pixel becomes white
     # 11 - Floating / Not used.
     #
     # Then the next four bytes in the row mean how many
@@ -387,7 +405,7 @@ class UC8151:
     # frequency set in the PLL, here we configure it to 100 HZ so 10ms).
     # 
     # So in the above case: hold pixel at VDH for 2 frames, then
-    # again VDL for 2 frame. The last two entries says 0 frames,
+    # hold at VDL for 2 frame. The last two entries say 0 frames,
     # so they are not used. The final byte in the row, 0x01, means
     # that this sequence must be repeated just once. If it was 2
     # the whole sequence would repeat 2 times and so forth.
@@ -467,7 +485,8 @@ class UC8151:
         if self.no_flickering == False or self.speed >= 4:
             # Step 1: reverse pixel color for half period, back to the color
             # the pixel should have. Repeat two times. This step is skipped
-            # if anti flickering is no.
+            # if anti flickering is no, but at high speed, since it is
+            # not visible anyway.
             rep = 1 if self.speed >= 4 else 2
             self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=rep)
             self.set_lut_row(BW,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=rep)
@@ -475,7 +494,9 @@ class UC8151:
             row += 1
         # Step 2: Finally set the target color for a full period.
         # Note that we want to repeat this cycle twice if we are going
-        # fast or we skipped the ping-pong step.
+        # fast or we skipped the ping-pong step, to have a more convincing
+        # white/black contrast and less ghosting at the cost of a minor
+        # time penalty.
         rep = 2 if self.speed > 3 or self.no_flickering else 1
         self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
@@ -490,7 +511,8 @@ class UC8151:
         self.write(CMD_LUT_WB,WB)
 
         # If no flickering mode is on, for pixels in the same state
-        # as before, we don't perform any inversion.
+        # as before, we don't perform any inversion. Otherwise they
+        # are handled like all the others.
         if self.no_flickering:
             BW[0] = 0x80
             WB[0] = 0x40
@@ -555,14 +577,15 @@ class UC8151:
         self.write(CMD_POF)
 
     # Update the screen with the current image in the framebuffer.
-    # If blocking is True, it the function blocks until the update
+    # If 'fb' is passed, we use a different framebuffer instead.
+    # If blocking is True, the function blocks until the update
     # is complete and powers the display off. Otherwise the display
     # will remain powered on, and can be turned off later with
     # wait_and_switch_off().
     #
     # The function returns False and does nothing in case the
     # blocking argument is False but there is an update already
-    # in progress. Otherwise True is returned.
+    # in progress. Otherwise True is returned and the display is updated.
     def update(self,blocking=False,fb=None):
         if fb == None: fb = self.raw_fb
         if blocking == False and self.is_busy(): return False
@@ -574,13 +597,19 @@ class UC8151:
         if blocking: self.wait_and_switch_off()
         return True
 
-    # Helper function to render greyscale images. Set the framebuffer with
-    # only the bytes of the greyscale image set to '1', and decrement all
-    # the non zero pixels by 1. So successive calls to this method will
-    # set pixels of successive level of greys.
+    # Helper function to render greyscale images.
     #
-    # Before calling this function, the framebuffer must be already with
-    # all the bits set to 0. Just call fb.fill(0) to do this quickly.
+    # This function has to generate two one-bit images, using the two
+    # framebuffers fb1 and fb2. For three grey levels, we set the
+    # before/after bits in order to trigger the WW/BB/WB conditions,
+    # so that we assign to each of this LUTs the waveform needed to
+    # generate a different level of greys. We use BW for pixels that were
+    # already set in past iterations and should not be toched.
+    # 
+    # Using this trick, we can set the pixels of three different levels
+    # of greys in the same update. The image to render should be in
+    # 'grey', where each byte maps to a pixel: higher values means
+    # a more intense level of grey.
     @micropython.viper
     def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int) -> int:
         count = int(width*height)
