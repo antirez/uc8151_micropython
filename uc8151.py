@@ -143,20 +143,22 @@ HZ_100     = const(0b00111010)
 HZ_200     = const(0b00111001)
 
 class UC8151:
-    def __init__(self,spi,*,cs,dc,rst,busy,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False):
+    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False):
         self.spi = spi
         self.cs = Pin(cs,Pin.OUT) if cs != None else None
         self.dc = Pin(dc,Pin.OUT) if dc != None else None
         self.rst = Pin(rst,Pin.OUT) if rst != None else None
         self.busy = Pin(busy,Pin.IN) if busy != None else None
+        self.width = width
+        self.height = height
         self.speed = speed
         self.no_flickering = no_flickering
         self.inverted = inverted
         self.mirror_x = mirror_x
         self.mirror_y = mirror_y
         self.initialize_display()
-        self.raw_fb = bytearray(128*296//8)
-        self.fb = framebuf.FrameBuffer(self.raw_fb,128,296,framebuf.MONO_HLSB)
+        self.raw_fb = bytearray(width*height//8)
+        self.fb = framebuf.FrameBuffer(self.raw_fb,width,height,framebuf.MONO_HLSB)
 
     # Return true if the display is busy performing an update, or also
     # if for any other reason it is not able to accept commands right now.
@@ -197,7 +199,19 @@ class UC8151:
         self.wait_ready()
 
         # Panel configuration: resolution, format and so forth.
-        psr_settings = RES_128x296 | FORMAT_BW | BOOSTER_ON | RESET_NONE
+        psr_settings = FORMAT_BW | BOOSTER_ON | RESET_NONE
+
+        if self.width == 96 and self.height == 230:
+            prs_settings |= RES_96x230
+        elif self.width == 96 and self.height == 252:
+            prs_settings |= RES_96x252
+        elif self.width == 128 and self.height == 296:
+            prs_settings |= RES_128x296
+        elif self.width == 160 and self.height == 296:
+            prs_settings |= RES_160x296
+        else:
+            raise ValueError("Unsupported display resolution specified")
+
         # If we select the default update speed, we will use the
         # lookup tables defined by the device. Otherwise the values for
         # the lookup tables must be read from the registers we set.
@@ -549,7 +563,7 @@ class UC8151:
         # Read image data.
         f = open(filename,"rb")
         f.read(4)
-        imgdata = bytearray(128*296)
+        imgdata = bytearray(self.width*self.height)
         f.readinto(imgdata)
         print("Image max luminance:",max(imgdata))
         for i in range(len(imgdata)):
@@ -576,7 +590,7 @@ class UC8151:
                     # Pixel that reached level "1" are the only ones at the
                     # current grey level we want to set.
                     if imgdata[i] == 1:
-                        self.fb.pixel(i%128,i//128,1)
+                        self.fb.pixel(i%self.width,i//self.width,1)
                         anypixel = True
                     # We decrement all the pixels not yet at 0, so successive
                     # level of greys will appear at value "1".
@@ -598,8 +612,9 @@ class UC8151:
                 VCOM[5] = 1
                 self.write(CMD_LUT_VCOM,VCOM)
 
+                print("start update grey level",g)
                 self.update(blocking=True)
-                print("Grey level",g)
+                print("end update")
 
         # Restore a normal LUT based on configured speed.
         self.set_waveform_lut()
@@ -611,10 +626,10 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.load_greyscale_image("dama.grey")
+    eink.load_greyscale_image("hopper.grey")
     STOP
 
-    #eink.set_handmade_lut()
+    # eink.set_handmade_lut()
 
     for speed in [2,3,4.3,5]:
         for noflick in [False,True]:
