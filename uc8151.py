@@ -202,13 +202,13 @@ class UC8151:
         psr_settings = FORMAT_BW | BOOSTER_ON | RESET_NONE
 
         if self.width == 96 and self.height == 230:
-            prs_settings |= RES_96x230
+            psr_settings |= RES_96x230
         elif self.width == 96 and self.height == 252:
-            prs_settings |= RES_96x252
+            psr_settings |= RES_96x252
         elif self.width == 128 and self.height == 296:
-            prs_settings |= RES_128x296
+            psr_settings |= RES_128x296
         elif self.width == 160 and self.height == 296:
-            prs_settings |= RES_160x296
+            psr_settings |= RES_160x296
         else:
             raise ValueError("Unsupported display resolution specified")
 
@@ -552,6 +552,31 @@ class UC8151:
         if blocking: self.wait_and_switch_off()
         return True
 
+    # Helper function to render greyscale images. Set the framebuffer with
+    # only the bytes of the greyscale image set to '1', and decrement all
+    # the non zero pixels by 1. So successive calls to this method will
+    # set pixels of successive level of greys.
+    #
+    # Before calling this function, the framebuffer must be already with
+    # all the bits set to 0. Just call fb.fill(0) to do this quickly.
+    @micropython.viper
+    def set_pixels_for_greyscale(self, grey:ptr8, fb:ptr8, width:int, height:int) -> int:
+        count = int(width*height)
+        anypixel = int(0)
+        for i in range(count):
+            if grey[i] > 0:
+                # Pixel that reached level "1" are the only ones at the
+                # current grey level we want to set.
+                if grey[i] == 1:
+                    byte = i >> 3
+                    bit = 1 << (7-(i&7))
+                    fb[byte] |= bit
+                    anypixel = 1
+                # We decrement all the pixels not yet at 0, so successive
+                # level of greys will appear at value "1".
+                grey[i] -= 1
+        return anypixel
+
     def load_greyscale_image(self,filename):
         # Configurable parameters:
         # 1. How many frames it takes for a pixel to reach full black?
@@ -584,17 +609,9 @@ class UC8151:
         # proportional to the grey level.
         for g in range(greyscale):
             self.fb.fill(0)
-            anypixel = False # Any pixel at this level of grey?
-            for i in range(len(imgdata)):
-                if imgdata[i] > 0:
-                    # Pixel that reached level "1" are the only ones at the
-                    # current grey level we want to set.
-                    if imgdata[i] == 1:
-                        self.fb.pixel(i%self.width,i//self.width,1)
-                        anypixel = True
-                    # We decrement all the pixels not yet at 0, so successive
-                    # level of greys will appear at value "1".
-                    imgdata[i] -= 1
+            # Resort to a faster method in Viper to set the pixels for the
+            # current greyscale level.
+            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,self.width,self.height)
             if anypixel:
                 # We set the framebuffer with just the pixels of the level
                 # of grey we are handling in this cycle, so now we apply
