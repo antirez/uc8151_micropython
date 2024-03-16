@@ -542,11 +542,12 @@ class UC8151:
     # The function returns False and does nothing in case the
     # blocking argument is False but there is an update already
     # in progress. Otherwise True is returned.
-    def update(self,blocking=False):
+    def update(self,blocking=False,fb=None):
+        if fb == None: fb = self.raw_fb
         if blocking == False and self.is_busy(): return False
         self.write(CMD_PON) # Power on
         self.write(CMD_PTOU) # Partial mode off
-        self.write(CMD_DTM2,self.raw_fb) # Start data transfer
+        self.write(CMD_DTM2,fb) # Start data transfer
         self.write(CMD_DSP) # End of data
         self.write(CMD_DRF) # Start refresh cycle.
         if blocking: self.wait_and_switch_off()
@@ -645,12 +646,7 @@ class UC8151:
                 self.write(CMD_LUT_WB,LUT)
                 self.write(CMD_LUT_BW,LUT)
 
-                self.write(CMD_PON) # Power on
-                self.write(CMD_PTOU) # Partial mode off
-                self.write(CMD_DTM2,fb2) # Start data transfer
-                self.write(CMD_DSP) # End of data
-                self.write(CMD_DRF) # Start refresh cycle.
-                self.wait_and_switch_off()
+                self.update(fb=fb2,blocking=True)
 
                 # We set the framebuffer with just the pixels of the level
                 # of grey we are handling in this cycle, so now we apply
