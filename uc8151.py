@@ -539,40 +539,13 @@ class UC8151:
         return True
 
     def load_greyscale_image(self,filename):
-        # Configurable parameters: how many frames it takes for a
-        # pixel to reach full black, if we take it at +11v?
-        # How many greys we want to generate?
+        # Configurable parameters:
+        # 1. How many frames it takes for a pixel to reach full black?
+        # 2. How many greys we want to generate?
 
-        greyscale = 16
+        greyscale = 32      # Can't be more than 32. Try 32, 16, 8, 4.
+        frames_to_black = 32
        
-        # The frames per grey level (that is function of frames_to_black)
-        # must be carefully calibrated... The respose is HIGHLY NON LINEAR
-        # here. Every update makes the targeted black pixels blacker, but
-        # it also has the effect of kinda making all the non-targeted
-        # pixels a bit brighter: they basically loose a bit of state, because
-        # the WW / BW LUTs are not set at all in the process.
-        #
-        # Now, this "issue" kinda helps us in some way! As initially the
-        # image will be too dark after a few steps, and we want all the
-        # greys to become clearer (cause we don't have this precision
-        # otherwise, because of the non linear response). So a given number
-        # of total steps (greys) map well with a given step size (number of
-        # frames we take the pixels at positive voltage), hence this table:
-        if greyscale == 32:
-            frames_to_black = 180
-        elif greyscale == 24:
-            frames_to_black = 180
-        elif greyscale == 16:
-            frames_to_black = 128
-        elif greyscale == 12:
-            frames_to_black = 100
-        elif greyscale == 8:
-            frames_to_black = 64
-        elif greyscale == 4:
-            frames_to_black = 64
-        else:
-            raise ValueError("Unsupported greyscale setting")
-
         # Read image data.
         f = open(filename,"rb")
         f.read(4)
@@ -584,45 +557,49 @@ class UC8151:
         self.fb.fill(0)
         self.update(blocking=True)
 
-        # After the first update, useful to get the display all white,
-        # we set a waveform only for W/B->B transition, and make it
-        # so brief that it will require many passes on the same pixel
-        # to turn black. So a different number of passes will generate
-        # a different level of grey.
+        # Nothing to do for white pixels or already black pixels.
+        # Set an empty LUT.
         LUT = bytearray(42)
-
-        # Nothing to do for white pixels.
         self.write(CMD_LUT_BW,LUT)
         self.write(CMD_LUT_WW,LUT)
-
-        # For black pixels, either new or already on the screen, apply
-        # current to go toward black for 10*LUT[1] milliseconds.
-        LUT[5] = 1 # Repeat 1 for all
-        LUT[0] = 0x55 # Go black
-        LUT[1] = frames_to_black//greyscale # Frames for grey step
-        self.write(CMD_LUT_WB,LUT)
         self.write(CMD_LUT_BB,LUT)
 
-        # Minimal VCOM LUT to avoid any unneeded wait.
-        VCOM = bytearray(44)
-        VCOM[0] = 0 # Already zero, just to make it obvious what we select.
-        VCOM[1] = LUT[1]
-        VCOM[5] = 1
-        self.write(CMD_LUT_VCOM,VCOM)
-
+        # Now for each level of grey in the image, create a bitmap composed
+        # only of pixels of that level of grey, and create an ad-hoc LUT
+        # that polarizes pixels towards black for an amount of time (frames)
+        # proportional to the grey level.
         for g in range(greyscale):
             self.fb.fill(0)
-            anywork = False
+            anypixel = False # Any pixel at this level of grey?
             for i in range(len(imgdata)):
                 if imgdata[i] > 0:
-                    self.fb.pixel(i%128,i//128,1)
+                    # Pixel that reached level "1" are the only ones at the
+                    # current grey level we want to set.
+                    if imgdata[i] == 1:
+                        self.fb.pixel(i%128,i//128,1)
+                        anypixel = True
+                    # We decrement all the pixels not yet at 0, so successive
+                    # level of greys will appear at value "1".
                     imgdata[i] -= 1
-                    anywork = True
-            if anywork:
+            if anypixel:
+                # We set the framebuffer with just the pixels of the level
+                # of grey we are handling in this cycle, so now we apply
+                # the voltage for a time proportional to this level (see
+                # the setting of LUT[1], that is the number of frames).
+                LUT[5] = 1 # Repeat 1 for all
+                LUT[0] = 0x55 # Go black
+                LUT[1] = int(frames_to_black/greyscale*(g+1))
+                self.write(CMD_LUT_WB,LUT)
+
+                # Minimal VCOM LUT to avoid any unneeded wait.
+                VCOM = bytearray(44)
+                VCOM[0] = 0 # Already zero, just to make it obvious.
+                VCOM[1] = LUT[1]
+                VCOM[5] = 1
+                self.write(CMD_LUT_VCOM,VCOM)
+
                 self.update(blocking=True)
                 print("Grey level",g)
-            else:
-                break
 
         # Restore a normal LUT based on configured speed.
         self.set_waveform_lut()
@@ -634,8 +611,8 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    #eink.load_greyscale_image("dama.grey")
-    #STOP
+    eink.load_greyscale_image("dama.grey")
+    STOP
 
     #eink.set_handmade_lut()
 
