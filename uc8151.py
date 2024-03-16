@@ -585,6 +585,10 @@ class UC8151:
     def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int) -> int:
         count = int(width*height)
         anypixel = int(0)
+        for i in range(count//8):
+            fb1[i] = 0
+            fb2[i] = 0
+
         for i in range(count):
             # Pixel that reached level "1" are the only ones at the
             # current grey level we want to set.
@@ -649,9 +653,8 @@ class UC8151:
         # only of pixels of that level of grey, and create an ad-hoc LUT
         # that polarizes pixels towards black for an amount of time (frames)
         # proportional to the grey level.
+        fb2 = bytearray(self.width*self.height//8)
         for g in range(0,greyscale,3):
-            self.fb.fill(0)
-            fb2 = bytearray(self.width*self.height//8)
             # Resort to a faster method in Viper to set the pixels for the
             # current greyscale level.
             anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height)
