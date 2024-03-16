@@ -143,7 +143,7 @@ HZ_100     = const(0b00111010)
 HZ_200     = const(0b00111001)
 
 class UC8151:
-    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False):
+    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False,debug=False):
         self.spi = spi
         self.cs = Pin(cs,Pin.OUT) if cs != None else None
         self.dc = Pin(dc,Pin.OUT) if dc != None else None
@@ -156,6 +156,7 @@ class UC8151:
         self.inverted = inverted
         self.mirror_x = mirror_x
         self.mirror_y = mirror_y
+        self.debug = debug
         self.initialize_display()
         self.raw_fb = bytearray(width*height//8)
         self.fb = framebuf.FrameBuffer(self.raw_fb,width,height,framebuf.MONO_HLSB)
@@ -191,13 +192,12 @@ class UC8151:
             self.spi.write(data)
         self.cs.on()
 
-    def initialize_display(self):
-        self.reset()
-
-        # Soft reset
-        self.write(CMD_PSR,RESET_SOFT)
-        self.wait_ready()
-
+    # This function sets the PSR register, a key register to
+    # set up the panel configuration. We call this function each
+    # time a new speed / LUTs are configured, because when we
+    # revert to the default LUTs (speed 0) the PSR register
+    # must be set to look into the internal tables.
+    def set_panel_configuration(self):
         # Panel configuration: resolution, format and so forth.
         psr_settings = FORMAT_BW | BOOSTER_ON | RESET_NONE
 
@@ -225,6 +225,16 @@ class UC8151:
         psr_settings |= SCAN_DOWN if self.mirror_y else SCAN_UP
 
         self.write(CMD_PSR,psr_settings)
+
+    def initialize_display(self):
+        self.reset()
+
+        # Soft reset
+        self.write(CMD_PSR,RESET_SOFT)
+        self.wait_ready()
+
+        # Setup the pain manel configuration
+        self.set_panel_configuration()
 
         # Set the lookup tables depending on the speed.
         self.set_waveform_lut()
@@ -471,8 +481,9 @@ class UC8151:
         self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(WB,row,pat=0x40,dur=[period,0,0,0],rep=rep)
 
-        self.show_lut(BW,"BW")
-        self.show_lut(WB,"WB")
+        if self.debug:
+            self.show_lut(BW,"BW")
+            self.show_lut(WB,"WB")
 
         self.write(CMD_LUT_VCOM,VCOM)
         self.write(CMD_LUT_BW,BW)
@@ -484,12 +495,22 @@ class UC8151:
             BW[0] = 0x80
             WB[0] = 0x40
 
-        self.show_lut(BW,"WW")
-        self.show_lut(WB,"BB")
+        if self.debug:
+            self.show_lut(BW,"WW")
+            self.show_lut(WB,"BB")
 
         self.write(CMD_LUT_WW,BW)
         self.write(CMD_LUT_BB,WB)
 
+    # Change the speed once the driver is already initialized.
+    # Sometimes in an application there are updates we want to do
+    # at high quality, other updates we want to do faster.
+    def set_speed(self,new_speed,no_flickering=None):
+        if no_flickering != None:
+            self.no_flickering = no_flickering
+        self.speed = new_speed
+        self.set_panel_configuration()
+        self.set_waveform_lut()
 
     # Set a given row in a waveform lookup table.
     # Lookup tables are 6 rows per 7 cols, like in this
@@ -607,8 +628,17 @@ class UC8151:
         print("Image max luminance:",max(imgdata))
         for i in range(len(imgdata)):
             imgdata[i] = int(((255 - imgdata[i]) / 255) * (greyscale-1))
+
+        # Prepare the display: we want it to be white, and we want the
+        # registers LUTs to be selected (all speeds but speed 0).
+        # Morover it's a great idea if we avoid flickering before showing
+        # the image.
+        orig_speed = self.speed
+        orig_no_flickering = self.no_flickering
+
+        self.set_speed(2,no_flickering=True)
         self.fb.fill(0)
-        self.update(blocking=True)
+        self.update(blocking=True) # All screen white
 
         # Nothing to do for white pixels or already black pixels.
         # Set an empty LUT.
@@ -673,6 +703,7 @@ class UC8151:
                 self.update(blocking=True)
 
         # Restore a normal LUT based on configured speed.
+        self.set_speed(orig_speed,no_flickering=orig_no_flickering)
         self.set_waveform_lut()
 
 if  __name__ == "__main__":
