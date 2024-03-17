@@ -705,27 +705,14 @@ class UC8151:
                 # the four set of conditions (WW, BB, WB, BW) based
                 # on the difference between the bits in the two
                 # images.
-                #
-                # This is a "fake" update that should not do nothing
-                # if not to refresh the display status of what was
-                # previously on the screen, so we set a repeat of 0.
-                LUT[5] = 1 # Repeat 1 for all
-                LUT[0] = 0x55 # Go black
-                LUT[1] = 0 # Zero frames, fake update.
-                VCOM[1] = LUT[1]
-
-                self.write(CMD_LUT_VCOM,VCOM)
-                self.write(CMD_LUT_WW,LUT)
-                self.write(CMD_LUT_BB,LUT)
-                self.write(CMD_LUT_WB,LUT)
-                self.write(CMD_LUT_BW,LUT)
-
-                self.update(fb=fb2,blocking=True)
+                self.send_image(fb2,old=True)
 
                 # We set the framebuffer with just the pixels of the level
                 # of grey we are handling in this cycle, so now we apply
                 # the voltage for a time proportional to this level (see
                 # the setting of LUT[1], that is the number of frames).
+                LUT[0] = 0x55 # Go black
+                LUT[5] = 1 # Repeat 1 for all
                 LUT[1] = int(frames_to_black/greyscale*(g+1))
                 self.write(CMD_LUT_WW,LUT)
                 LUT[1] = int(frames_to_black/greyscale*(g+2))
@@ -785,8 +772,6 @@ if  __name__ == "__main__":
 
     #eink.load_greyscale_image("dama.grey")
     eink.load_greyscale_image("hopper.grey")
-    time.sleep(1)
-    eink.fade_out()
     STOP
 
     # eink.set_handmade_lut()
