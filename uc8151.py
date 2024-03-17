@@ -283,7 +283,11 @@ class UC8151:
         # VCOM data and interval settings. We can use this register in order
         # to invert the display so that black is white and white is black,
         # without resorting to software changes.
-        self.write(CMD_CDI,0b10_01_1100 if self.inverted else 0b01_00_1100)
+        #
+        # The first two bits are the "border data selection" and are
+        # pretty much undocumented, however with 00 or 11 the border
+        # will not flicker when the display updates, so that's what we use.
+        self.write(CMD_CDI,0b11_01_1100 if self.inverted else 0b11_00_1100)
 
         # PLL clock frequency. Setting it to 100 HZ means that each
         # "frame" in the counts in the refresh waveforms lookup tables will
