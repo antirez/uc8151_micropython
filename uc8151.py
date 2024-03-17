@@ -284,9 +284,11 @@ class UC8151:
         # to invert the display so that black is white and white is black,
         # without resorting to software changes.
         #
-        # The first two bits are the "border data selection" and are
-        # pretty much undocumented, however with 00 or 11 the border
-        # will not flicker when the display updates, so that's what we use.
+        # The bits 7:6 are the "border data selection":
+        # For black/white mode: 00,11 = floating. 01: LUTBW, 10: LUTWB.
+        # For black/white/red: 00 floating, 01 LUTR, 10 LUTW, 11 LUTB.
+        # We keep it at 11 since it is floating in all the cases so
+        # that the border will not flicker.
         self.write(CMD_CDI,0b11_01_1100 if self.inverted else 0b11_00_1100)
 
         # PLL clock frequency. Setting it to 100 HZ means that each
@@ -770,8 +772,8 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    #eink.load_greyscale_image("dama.grey")
-    eink.load_greyscale_image("hopper.grey")
+    eink.load_greyscale_image("dama.grey")
+    #eink.load_greyscale_image("hopper.grey")
     STOP
 
     # eink.set_handmade_lut()
