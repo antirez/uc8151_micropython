@@ -589,13 +589,25 @@ class UC8151:
     def update(self,blocking=False,fb=None):
         if fb == None: fb = self.raw_fb
         if blocking == False and self.is_busy(): return False
-        self.write(CMD_PON) # Power on
-        self.write(CMD_PTOU) # Partial mode off
-        self.write(CMD_DTM2,fb) # Start data transfer
-        self.write(CMD_DSP) # End of data
+        self.send_image(fb)
         self.write(CMD_DRF) # Start refresh cycle.
         if blocking: self.wait_and_switch_off()
         return True
+
+    # Transfer bitmap to device. The chip has two framebuffers, one for
+    # the old image and one for the new image. This way it can do the
+    # difference when performing the update and apply the correct waveform
+    # depending on WW, BB, WB, BW transition. When we refresh, the new
+    # framebuffer is automatically copied to the old one, but we can control
+    # both framebuffer when we wish to.
+    def send_image(self,fb,old=False):
+        self.write(CMD_PON) # Power on
+        self.write(CMD_PTOU) # Partial mode off
+        if old:
+            self.write(CMD_DTM1,fb) # Transfer to previous image buffer.
+        else:
+            self.write(CMD_DTM2,fb) # Transfer to current image buffer.
+        self.write(CMD_DSP) # End of data
 
     # Helper function to render greyscale images.
     #
