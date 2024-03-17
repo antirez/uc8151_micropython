@@ -746,6 +746,32 @@ class UC8151:
         self.set_speed(orig_speed,no_flickering=orig_no_flickering)
         self.set_waveform_lut()
 
+    # Fade off effect.
+    def fade_out(self,blocking=True):
+        LUT = bytearray(42)
+        VCOM = bytearray(44)
+        LUT[0] = 0b10_00_00_00
+        LUT[1] = 1 # Frames
+        LUT[2] = 2 # Frames
+        LUT[3] = 2 # Frames
+        LUT[4] = 2 # Frames
+        LUT[5] = 10 # Repeat
+
+        LUT[6] = 0b10_00_00_00
+        LUT[7] = 3 # Frames
+        LUT[11] = 10 # Repeat
+
+        VCOM[1:6] = LUT[1:6]
+        VCOM[7:12] = LUT[7:12]
+        self.write(CMD_LUT_VCOM,VCOM)
+        self.write(CMD_LUT_WW,LUT)
+        self.write(CMD_LUT_BB,LUT)
+        self.write(CMD_LUT_WB,LUT)
+        self.write(CMD_LUT_BW,LUT)
+        empty = bytes(self.width*self.height//8)
+        self.update(blocking=blocking,fb=empty)
+        self.set_waveform_lut()
+
 if  __name__ == "__main__":
     from machine import SPI
     import random
@@ -753,8 +779,10 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.load_greyscale_image("dama.grey")
+    #eink.load_greyscale_image("dama.grey")
     eink.load_greyscale_image("hopper.grey")
+    time.sleep(1)
+    eink.fade_out()
     STOP
 
     # eink.set_handmade_lut()
