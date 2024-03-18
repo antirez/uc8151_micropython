@@ -1,5 +1,5 @@
-# MicroPython driver for the UC8151 e-paper display used in the
-# Badger 2040.
+# MicroPython driver for the UC8151 /IL0373 e-paper display.
+# This is the e-paper type used in the Badger 2040.
 #
 # Copyright(C) 2024 Salvatore Sanfilippo <antirez@gmail.com>
 # MIT license.
@@ -586,13 +586,13 @@ class UC8151:
     # If 'fb' is passed, we use a different framebuffer instead.
     # If blocking is True, the function blocks until the update
     # is complete and powers the display off. Otherwise the display
-    # will remain powered on, and can be turned off later with
-    # wait_and_switch_off().
+    # will remain powered on, and can (and should) be turned off later
+    # with wait_and_switch_off().
     #
     # The function returns False and does nothing in case the
     # blocking argument is False but there is an update already
     # in progress. Otherwise True is returned and the display is updated.
-    def update(self,blocking=False,fb=None):
+    def update(self,blocking=True,fb=None):
         if fb == None: fb = self.raw_fb
         if blocking == False and self.is_busy(): return False
         self.send_image(fb)
@@ -678,8 +678,6 @@ class UC8151:
 
         # Prepare the display: we want it to be white, and we want the
         # registers LUTs to be selected (all speeds but speed 0).
-        # Morover it's a great idea if we avoid flickering before showing
-        # the image.
         orig_speed = self.speed
         orig_no_flickering = self.no_flickering
 
