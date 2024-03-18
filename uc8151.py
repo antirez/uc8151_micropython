@@ -440,15 +440,18 @@ class UC8151:
     #
     # However they are set to 0 in all the LUTs I saw, so they are generally
     # not used and we don't use it either.
-    def set_waveform_lut(self):
-        if self.speed < 1:
+    def set_waveform_lut(self,speed=None,no_flickering=None):
+        if speed == None: speed = self.speed
+        if no_flickering == None: no_flickering = self.no_flickering
+
+        if speed < 1:
             # For the default speed, we don't set any LUT, but resort
             # to the one inside the device. __init__() will take care
             # to tell the chip to use internal LUTs by setting the right
             # PSR field to LUT_OTP.
             return
 
-        if self.speed > 6:
+        if speed > 6:
             raise ValueError("Speed must be set between 0 and 6")
 
         # In this driver we try to do things a bit differently and compute
@@ -481,27 +484,27 @@ class UC8151:
         hperiod = period//2   # Num. of frames for back-and-forth change.
         
         # Actual period is scaled by the speed factor
-        period = int(max(period / (2**(self.speed-1)), 1))
-        hperiod = int(max(hperiod / (2**(self.speed-1)), 1))
+        period = int(max(period / (2**(speed-1)), 1))
+        hperiod = int(max(hperiod / (2**(speed-1)), 1))
 
         # Setup three (or two) steps.
         # For all the steps, VCOM is just taken at VCOM_DC,
         # so the VCOM pattern is always 0.
 
         row = 0
-        if self.speed < 4:
+        if speed < 4:
             # Step 0: reverse pixel color compared to the target color for
             # a given period.
             self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
             self.set_lut_row(BW,row,pat=0b01_000000,dur=[period,0,0,0],rep=1)
             self.set_lut_row(WB,row,pat=0b10_000000,dur=[period,0,0,0],rep=1)
             row += 1
-        if self.no_flickering == False or self.speed >= 4:
+        if no_flickering == False or speed >= 4:
             # Step 1: reverse pixel color for half period, back to the color
             # the pixel should have. Repeat two times. This step is skipped
             # if anti flickering is no, but at high speed, since it is
             # not visible anyway.
-            rep = 1 if self.speed >= 4 else 2
+            rep = 1 if speed >= 4 else 2
             self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=rep)
             self.set_lut_row(BW,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
             self.set_lut_row(WB,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
@@ -511,7 +514,7 @@ class UC8151:
         # fast or we skipped the ping-pong step, to have a more convincing
         # white/black contrast and less ghosting at the cost of a minor
         # time penalty.
-        rep = 2 if self.speed > 3 or self.no_flickering else 1
+        rep = 2 if speed > 3 or no_flickering else 1
         self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(BW,row,pat=0b10_000000,dur=[period,0,0,0],rep=rep)
         self.set_lut_row(WB,row,pat=0b01_000000,dur=[period,0,0,0],rep=rep)
@@ -538,7 +541,7 @@ class UC8151:
         # alike, but I guess it may ruin the display forever insisting
         # enough. So we just put the pixels to ground, and from time to
         # time do a full refresh.
-        if self.no_flickering:
+        if no_flickering:
             self.clear_lut(BW)
             self.clear_lut(WB)
 
@@ -625,19 +628,16 @@ class UC8151:
 
         # At the first refresh with a no-flickering mode, and also
         # every N refreshes, do a full refresh.
-        restore_no_flickering = False
-        if self.update_count % self.full_update_period == 0 and self.no_flickering:
-            self.no_flickering = False
-            self.set_waveform_lut()
-            restore_no_flickering = True
+        if self.update_count % self.full_update_period == 0 and \
+           self.no_flickering:
+            self.set_waveform_lut(min(2,self.speed),False)
 
         self.send_image(fb)
         self.write(CMD_DRF) # Start refresh cycle.
 
-        # Load back the no-flickering LUTs if we forced
-        # a flickered refresh.
-        if restore_no_flickering:
-            self.no_flickering = True
+        # Load back the no-flickering LUTs if we forced a flickered refresh.
+        if self.update_count % self.full_update_period == 0 and \
+           self.no_flickering:
             self.set_waveform_lut()
 
         if blocking: self.wait_and_switch_off()
