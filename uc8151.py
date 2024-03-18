@@ -143,7 +143,7 @@ HZ_100     = const(0b00111010)
 HZ_200     = const(0b00111001)
 
 class UC8151:
-    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False,debug=False):
+    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False,debug=False,full_update_period=50):
         self.spi = spi
         self.cs = Pin(cs,Pin.OUT) if cs != None else None
         self.dc = Pin(dc,Pin.OUT) if dc != None else None
@@ -160,6 +160,14 @@ class UC8151:
         self.initialize_display()
         self.raw_fb = bytearray(width*height//8)
         self.fb = framebuf.FrameBuffer(self.raw_fb,width,height,framebuf.MONO_HLSB)
+
+        # Updates done with the current speed settings.
+        self.update_count = 0
+
+        # From time to time, if partial updates or no-flickering updates
+        # are used, we perform a full update regardless, to remove ghosting,
+        # make the background color more even and so forth.
+        self.full_update_period = full_update_period
 
     # Return true if the display is busy performing an update, or also
     # if for any other reason it is not able to accept commands right now.
@@ -485,8 +493,8 @@ class UC8151:
             # Step 0: reverse pixel color compared to the target color for
             # a given period.
             self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
-            self.set_lut_row(BW,row,pat=0x40,dur=[period,0,0,0],rep=1)
-            self.set_lut_row(WB,row,pat=0x80,dur=[period,0,0,0],rep=1)
+            self.set_lut_row(BW,row,pat=0b01_000000,dur=[period,0,0,0],rep=1)
+            self.set_lut_row(WB,row,pat=0b10_000000,dur=[period,0,0,0],rep=1)
             row += 1
         if self.no_flickering == False or self.speed >= 4:
             # Step 1: reverse pixel color for half period, back to the color
@@ -495,8 +503,8 @@ class UC8151:
             # not visible anyway.
             rep = 1 if self.speed >= 4 else 2
             self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=rep)
-            self.set_lut_row(BW,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=rep)
-            self.set_lut_row(WB,row,pat=0x60,dur=[hperiod,hperiod,0,0],rep=rep)
+            self.set_lut_row(BW,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
+            self.set_lut_row(WB,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
             row += 1
         # Step 2: Finally set the target color for a full period.
         # Note that we want to repeat this cycle twice if we are going
@@ -505,8 +513,8 @@ class UC8151:
         # time penalty.
         rep = 2 if self.speed > 3 or self.no_flickering else 1
         self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
-        self.set_lut_row(BW,row,pat=0x80,dur=[period,0,0,0],rep=rep)
-        self.set_lut_row(WB,row,pat=0x40,dur=[period,0,0,0],rep=rep)
+        self.set_lut_row(BW,row,pat=0b10_000000,dur=[period,0,0,0],rep=rep)
+        self.set_lut_row(WB,row,pat=0b01_000000,dur=[period,0,0,0],rep=rep)
 
         if self.debug:
             self.show_lut(BW,"BW")
@@ -517,11 +525,22 @@ class UC8151:
         self.write(CMD_LUT_WB,WB)
 
         # If no flickering mode is on, for pixels in the same state
-        # as before, we don't perform any inversion. Otherwise they
-        # are handled like all the others.
+        # as before, we perform a single frame inversion, then back
+        # to the actual color.
+        #
+        # If no flickering mode is disabled, we use an empty
+        # waveform BB and WW. Read the warning below.
+        #
+        # WARNING: to just re-affirm the pixel color applying only the
+        # voltage needed for the target color for the normal duration
+        # will result in microparticles to be semi-permanently polarized
+        # towards one way, with damages that often go away in one day or
+        # alike, but I guess it may ruin the display forever insisting
+        # enough. So we just put the pixels to ground, and from time to
+        # time do a full refresh.
         if self.no_flickering:
-            BW[0] = 0x80
-            WB[0] = 0x40
+            self.clear_lut(BW)
+            self.clear_lut(WB)
 
         if self.debug:
             self.show_lut(BW,"WW")
@@ -539,6 +558,7 @@ class UC8151:
         self.speed = new_speed
         self.set_panel_configuration()
         self.set_waveform_lut()
+        self.update_count = 0
 
     # Set a given row in a waveform lookup table.
     # Lookup tables are 6 rows per 7 cols, like in this
@@ -565,6 +585,13 @@ class UC8151:
         lut[off+3] = dur[2]
         lut[off+4] = dur[3]
         lut[off+5] = rep
+
+    # Just fill the array of zero values.
+    @micropython.viper
+    def clear_lut(self,lut):
+        l = int(len(lut))
+        p = ptr8(lut)
+        for i in range(l): p[i] = 0
 
     # Show a well-formatted LUT table. Useful for debugging.
     def show_lut(self,lut,name):
@@ -595,9 +622,26 @@ class UC8151:
     def update(self,blocking=True,fb=None):
         if fb == None: fb = self.raw_fb
         if blocking == False and self.is_busy(): return False
+
+        # At the first refresh with a no-flickering mode, and also
+        # every N refreshes, do a full refresh.
+        restore_no_flickering = False
+        if self.update_count % self.full_update_period == 0 and self.no_flickering:
+            self.no_flickering = False
+            self.set_waveform_lut()
+            restore_no_flickering = True
+
         self.send_image(fb)
         self.write(CMD_DRF) # Start refresh cycle.
+
+        # Load back the no-flickering LUTs if we forced
+        # a flickered refresh.
+        if restore_no_flickering:
+            self.no_flickering = True
+            self.set_waveform_lut()
+
         if blocking: self.wait_and_switch_off()
+        self.update_count += 1
         return True
 
     # Transfer bitmap to device. The chip has two framebuffers, one for
@@ -735,7 +779,6 @@ class UC8151:
 
         # Restore a normal LUT based on configured speed.
         self.set_speed(orig_speed,no_flickering=orig_no_flickering)
-        self.set_waveform_lut()
 
     # Fade off effect.
     def fade_out(self,blocking=True):
