@@ -669,7 +669,7 @@ class UC8151:
     # The three level of greys that this function will match are
     # given by 'level': from level to level+2 inclusive.
     @micropython.viper
-    def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int, level:int) -> int:
+    def set_pixels_for_greyscale(self, grey:ptr8, fb1:ptr8, fb2:ptr8, width:int, height:int, shift:int, level:int) -> int:
         count = int(width*height)
         anypixel = int(0)
         for i in range(count//8):
@@ -682,27 +682,38 @@ class UC8151:
             byte = i >> 3
             bit = 1 << (7-(i&7))
 
-            if grey[i] == level:        # WW condition
+            # Given that a greater value of the pixel means lighter
+            # pixels, but for the display more frames to turn this pixel
+            # towards black is the reverse, we invert the pixel value.
+            # We also need to scale it from 0-255 to 0-(greys-1).
+            converted = (255-grey[i]) >> shift # Invert and rescale.
+            if converted == level:        # WW condition
                 anypixel = 1
                 pass
-            elif grey[i] == level+1:    # BB condition
+            elif converted == level+1:    # BB condition
                 anypixel = 1
                 fb1[byte] |= bit
                 fb2[byte] |= bit
-            elif grey[i] == level+2:    # WB condition
+            elif converted == level+2:    # WB condition
                 anypixel = 1
                 fb1[byte] |= bit
             else:                   # BW condition, pixels not touched.
                 fb2[byte] |= bit
         return anypixel
 
-    def load_greyscale_image(self,filename):
-        # Configurable parameters:
-        # 1. How many frames it takes for a pixel to reach full black?
-        # 2. How many greys we want to generate?
+    def load_greyscale_image(self,filename,greyscale):
 
-        greyscale = 32 # Can't be more than 32. Try 32, 16, 8, 4.
-        frames_to_black = 32
+        greyscales = [32,16,8,4] # Must be power of 2.
+        frames_to_black = 32 # Frames needed to go from white to black, using
+                             # a too large number may damage the display, but
+                             # using a bit larger number may improve contrast.
+
+        if greyscale not in greyscales:
+            raise ValueError("Unsupproted greyscale")
+
+        # Amount of right shifting to convert 0-255 grey value to
+        # 0-(greyscale-1) value.
+        shift = 3+greyscales.index(greyscale)
 
         # Read image data.
         f = open(filename,"rb")
@@ -710,8 +721,6 @@ class UC8151:
         imgdata = bytearray(self.width*self.height)
         f.readinto(imgdata)
         print("Image max luminance:",max(imgdata))
-        for i in range(len(imgdata)):
-            imgdata[i] = int(((255 - imgdata[i]) / 255) * (greyscale-1))
 
         # Prepare the display: we want it to be white, and we want the
         # registers LUTs to be selected (all speeds but speed 0).
@@ -735,7 +744,7 @@ class UC8151:
         for g in range(0,greyscale,3):
             # Resort to a faster method in Viper to set the pixels for the
             # current greyscale level.
-            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height,g+1)
+            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height,shift,g+1)
             if anypixel:
                 # Transfer the "old" image, so that for difference
                 # with the new we transfer via .update() we create
@@ -750,11 +759,11 @@ class UC8151:
                 # the setting of LUT[1], that is the number of frames).
                 LUT[0] = 0x55 # Go black
                 LUT[5] = 1 # Repeat 1 for all
-                LUT[1] = int(frames_to_black/greyscale*(g+1))
+                LUT[1] = int(frames_to_black/(greyscale-1)*(g+1))
                 self.write(CMD_LUT_WW,LUT)
-                LUT[1] = int(frames_to_black/greyscale*(g+2))
+                LUT[1] = int(frames_to_black/(greyscale-1)*(g+2))
                 self.write(CMD_LUT_BB,LUT)
-                LUT[1] = int(frames_to_black/greyscale*(g+3))
+                LUT[1] = int(frames_to_black/(greyscale-1)*(g+3))
                 self.write(CMD_LUT_WB,LUT)
                 LUT[1] = 0 # These pixels will be unaffected, none of them
                            # is of the three colors handled in this cycle.
@@ -806,7 +815,7 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.load_greyscale_image("dama.grey")
+    eink.load_greyscale_image("dama.grey",16)
     #eink.load_greyscale_image("hopper.grey")
     STOP
 
