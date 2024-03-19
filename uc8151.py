@@ -469,7 +469,7 @@ class UC8151:
         #    know state to prevent ghosting, leaving residues and so forth.
         # 2. Waveforms for white-to-white and black-to-black will avoid
         #    to invert the pixels at all. We will just set the
-        #    voltage needed to confirm the pixel color.
+        #    voltage to ground (see more about this below).
 
         # We use just three tables, as for WHITE->WHITE and BLACK->BLACK
         # we will reuse the first tables, possibly modifying them on the
@@ -511,7 +511,7 @@ class UC8151:
             row += 1
         # Step 2: Finally set the target color for a full period.
         # Note that we want to repeat this cycle twice if we are going
-        # fast or we skipped the ping-pong step, to have a more convincing
+        # fast, or if we skipped the ping-pong step, to have a more convincing
         # white/black contrast and less ghosting at the cost of a minor
         # time penalty.
         rep = 2 if speed > 3 or no_flickering else 1
@@ -527,20 +527,15 @@ class UC8151:
         self.write(CMD_LUT_BW,BW)
         self.write(CMD_LUT_WB,WB)
 
-        # If no flickering mode is on, for pixels in the same state
-        # as before, we perform a single frame inversion, then back
-        # to the actual color.
-        #
-        # If no flickering mode is disabled, we use an empty
+        # If no flickering mode is enabled, we use an empty
         # waveform BB and WW. Read the warning below.
         #
         # WARNING: to just re-affirm the pixel color applying only the
-        # voltage needed for the target color for the normal duration
-        # will result in microparticles to be semi-permanently polarized
-        # towards one way, with damages that often go away in one day or
-        # alike, but I guess it may ruin the display forever insisting
-        # enough. So we just put the pixels to ground, and from time to
-        # time do a full refresh.
+        # voltage needed for the target color will result in microparticles
+        # to be semi-permanently polarized towards one way, with damages
+        # that often go away in one day or alike, but I guess it may ruin the
+        # display forever insisting enough. So we just put the pixels to
+        # ground, and from time to time we do a full refresh.
         if no_flickering:
             self.clear_lut(BW)
             self.clear_lut(WB)
