@@ -349,8 +349,8 @@ class UC8151:
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         ])
         WW = bytes([
-          0xaa, 0x01, 0x01, 0x01, 0x01, 0x01,
-          0xaa, 0x02, 0x02, 0x03, 0x00, 0x02,
+          0b01_10_0000, 0x08, 0x08, 0x00, 0x00, 0x01,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -358,8 +358,8 @@ class UC8151:
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         ])
         BB = bytes([
-          0x55, 0x01, 0x01, 0x01, 0x01, 0x01,
-          0x55, 0x02, 0x02, 0x03, 0x00, 0x02,
+          0b10_01_0000, 0x08, 0x08, 0x00, 0x00, 0x01,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -487,37 +487,30 @@ class UC8151:
         period = int(max(period / (2**(speed-1)), 1))
         hperiod = int(max(hperiod / (2**(speed-1)), 1))
 
-        # Setup three (or two) steps.
-        # For all the steps, VCOM is just taken at VCOM_DC,
+        # Set the waveform in the LUTs.
+        #
+        # Note: for all the steps, VCOM is just taken at VCOM_DC,
         # so the VCOM pattern is always 0.
+        #
+        # Also note that the generated LUTs are charge-neutral. This
+        # means that we apply the same level of positive and negative
+        # voltages for each pixel. This is VERY important to make sure
+        # the display microparticles don't get permanently damaged.
 
-        row = 0
-        if speed < 4:
-            # Step 0: reverse pixel color compared to the target color for
-            # a given period.
-            self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=1)
-            self.set_lut_row(BW,row,pat=0b01_000000,dur=[period,0,0,0],rep=1)
-            self.set_lut_row(WB,row,pat=0b10_000000,dur=[period,0,0,0],rep=1)
-            row += 1
-        if no_flickering == False or speed >= 4:
-            # Step 1: reverse pixel color for half period, back to the color
-            # the pixel should have. Repeat two times. This step is skipped
-            # if anti flickering is no, but at high speed, since it is
-            # not visible anyway.
-            rep = 1 if speed >= 4 else 2
-            self.set_lut_row(VCOM,row,pat=0,dur=[hperiod,hperiod,0,0],rep=rep)
-            self.set_lut_row(BW,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
-            self.set_lut_row(WB,row,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=rep)
-            row += 1
-        # Step 2: Finally set the target color for a full period.
-        # Note that we want to repeat this cycle twice if we are going
-        # fast, or if we skipped the ping-pong step, to have a more convincing
-        # white/black contrast and less ghosting at the cost of a minor
-        # time penalty.
-        rep = 2 if speed > 3 or no_flickering else 1
-        self.set_lut_row(VCOM,row,pat=0,dur=[period,0,0,0],rep=rep)
-        self.set_lut_row(BW,row,pat=0b10_000000,dur=[period,0,0,0],rep=rep)
-        self.set_lut_row(WB,row,pat=0b01_000000,dur=[period,0,0,0],rep=rep)
+        # Phase 1: long go-inverted-color.
+        self.set_lut_row(VCOM,0,pat=0,dur=[period,0,0,0],rep=1)
+        self.set_lut_row(BW,0,pat=0b01_000000,dur=[period,0,0,0],rep=2)
+        self.set_lut_row(WB,0,pat=0b10_000000,dur=[period,0,0,0],rep=2)
+
+        # Phase 2: short ping/pong.
+        self.set_lut_row(VCOM,1,pat=0,dur=[hperiod,hperiod,0,0],rep=1)
+        self.set_lut_row(BW,1,pat=0b10_01_0000,dur=[hperiod,hperiod,0,0],rep=1)
+        self.set_lut_row(WB,1,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=1)
+
+        # Phase 3: long go-target-color.
+        self.set_lut_row(VCOM,2,pat=0,dur=[period,0,0,0],rep=1)
+        self.set_lut_row(BW,2,pat=0b10_000000,dur=[period,0,0,0],rep=2)
+        self.set_lut_row(WB,2,pat=0b01_000000,dur=[period,0,0,0],rep=2)
 
         if self.debug:
             self.show_lut(BW,"BW")
@@ -528,15 +521,18 @@ class UC8151:
         self.write(CMD_LUT_WB,WB)
 
         # If no flickering mode is enabled, we use an empty
-        # waveform BB and WW. Read the warning below.
+        # waveform BB and WW. The screen will be fully refreshed every
+        # self.full_update_period updates.
         #
-        # WARNING: to just re-affirm the pixel color applying only the
+        # !!! WARNING !!!
+        #
+        # For BB/WW, to just re-affirm the pixel color applying only the
         # voltage needed for the target color will result in microparticles
         # to be semi-permanently polarized towards one way, with damages
-        # that often go away in one day or alike, but I guess it may ruin the
+        # that often go away in one day or alike, but it may ruin the
         # display forever insisting enough. So we just put the pixels to
-        # ground, and from time to time we do a full refresh.
-        if no_flickering:
+        # ground, and from time to time do a full refresh.
+        if no_flickering == True:
             self.clear_lut(BW)
             self.clear_lut(WB)
 
@@ -595,7 +591,9 @@ class UC8151:
     def show_lut(self,lut,name):
         print(name,":")
         for i in range(7):
-            for j in range(6):
+            if i > 0 and lut[i*6] == 0: break
+            print(bin(lut[i*6]|256)[3:],end=' ')
+            for j in range(1,6):
                 print(hex(lut[i*6+j]),end=' ')
             print("")
         print("---")
