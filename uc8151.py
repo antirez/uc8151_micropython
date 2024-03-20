@@ -476,12 +476,12 @@ class UC8151:
         #    to invert the pixels at all. We will just set the
         #    voltage to ground (see more about this below).
 
-        # We use just three tables, as for WHITE->WHITE and BLACK->BLACK
-        # we will reuse the first tables, possibly modifying them on the
-        # fly.
+        # Create the LUTs to fill with the computed values.
         VCOM = bytearray(44)
         BW = bytearray(42)
         WB = bytearray(42)
+        WW = bytearray(42)
+        BB = bytearray(42)
 
         # Those periods are powers of two so that each successive 'speed'
         # value cuts them in half cleanly.
@@ -497,33 +497,44 @@ class UC8151:
         # Note: for all the steps, VCOM is just taken at VCOM_DC,
         # so the VCOM pattern is always 0.
         #
-        # Also note that the generated LUTs are charge-neutral. This
+        # Also note that the generated WW/BB LUTs are charge-neutral. This
         # means that we apply the same level of positive and negative
         # voltages for each pixel. This is VERY important to make sure
         # the display microparticles don't get permanently damaged.
 
-        # Phase 1: long go-inverted-color.
-        self.set_lut_row(VCOM,0,pat=0,dur=[period,0,0,0],rep=1)
-        self.set_lut_row(BW,0,pat=0b01_000000,dur=[period,0,0,0],rep=2)
-        self.set_lut_row(WB,0,pat=0b10_000000,dur=[period,0,0,0],rep=2)
+        if speed <= 3 and self.no_flickering == False:
+            # Phase 1: long go-inverted-color.
+            self.set_lut_row(VCOM,0,pat=0,dur=[period,0,0,0],rep=2)
+            self.set_lut_row(BW,0,pat=0b01_000000,dur=[period,0,0,0],rep=2)
+            self.set_lut_row(WB,0,pat=0b10_000000,dur=[period,0,0,0],rep=2)
 
-        # Phase 2: short ping/pong.
-        self.set_lut_row(VCOM,1,pat=0,dur=[hperiod,hperiod,0,0],rep=1)
-        self.set_lut_row(BW,1,pat=0b10_01_0000,dur=[hperiod,hperiod,0,0],rep=1)
-        self.set_lut_row(WB,1,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=1)
+            # Phase 2: short ping/pong.
+            self.set_lut_row(VCOM,1,pat=0,dur=[hperiod,hperiod,0,0],rep=2)
+            self.set_lut_row(BW,1,pat=0b10_01_0000,dur=[hperiod,hperiod,0,0],rep=1)
+            self.set_lut_row(WB,1,pat=0b01_10_0000,dur=[hperiod,hperiod,0,0],rep=1)
 
-        # Phase 3: long go-target-color.
-        self.set_lut_row(VCOM,2,pat=0,dur=[period,0,0,0],rep=1)
-        self.set_lut_row(BW,2,pat=0b10_000000,dur=[period,0,0,0],rep=2)
-        self.set_lut_row(WB,2,pat=0b01_000000,dur=[period,0,0,0],rep=2)
+            # Phase 3: long go-target-color.
+            self.set_lut_row(VCOM,2,pat=0,dur=[period,0,0,0],rep=2)
+            self.set_lut_row(BW,2,pat=0b10_000000,dur=[period,0,0,0],rep=2)
+            self.set_lut_row(WB,2,pat=0b01_000000,dur=[period,0,0,0],rep=2)
 
-        if self.debug:
-            self.show_lut(BW,"BW")
-            self.show_lut(WB,"WB")
+            # For this speed, we use the same LUTs for WW/BB as well. We
+            # will clear it for no flickering modes.
+            WW[:] = BW[:]
+            BB[:] = WB[:]
+        else:   # Speed > 3
+            # For greater than 3 we use non charge-neutral LUTs for WB/BW
+            # since the inpulse is short and it gets reversed when the
+            # pixel changes color, so that's not a problem for the display,
+            # however we need to use charge-neutral LUTs for WW/BB.
 
-        self.write(CMD_LUT_VCOM,VCOM)
-        self.write(CMD_LUT_BW,BW)
-        self.write(CMD_LUT_WB,WB)
+            # Phase 1: short go-inverted-color, long go-target-color.
+            p = period
+            self.set_lut_row(VCOM,0,pat=0,dur=[p,p,p,p],rep=1)
+            self.set_lut_row(BW,0,pat=0b10_00_00_00,dur=[p*4,0,0,0],rep=1)
+            self.set_lut_row(WB,0,pat=0b01_00_00_00,dur=[p*4,0,0,0],rep=1)
+            self.set_lut_row(WW,0,pat=0b01_10_00_00,dur=[p*2,p*2,0,0],rep=1)
+            self.set_lut_row(BB,0,pat=0b10_01_00_00,dur=[p*2,p*2,0,0],rep=1)
 
         # If no flickering mode is enabled, we use an empty
         # waveform BB and WW. The screen will be fully refreshed every
@@ -538,15 +549,21 @@ class UC8151:
         # display forever insisting enough. So we just put the pixels to
         # ground, and from time to time do a full refresh.
         if no_flickering == True:
-            self.clear_lut(BW)
-            self.clear_lut(WB)
+            self.clear_lut(WW)
+            self.clear_lut(BB)
 
         if self.debug:
-            self.show_lut(BW,"WW")
-            self.show_lut(WB,"BB")
+            print(f"LUTs for speed {self.speed} no_flickering {self.no_flickering}:")
+            self.show_lut(BW,"BW")
+            self.show_lut(WB,"WB")
+            self.show_lut(WW,"WW")
+            self.show_lut(BB,"BB")
 
-        self.write(CMD_LUT_WW,BW)
-        self.write(CMD_LUT_BB,WB)
+        self.write(CMD_LUT_VCOM,VCOM)
+        self.write(CMD_LUT_BW,BW)
+        self.write(CMD_LUT_WB,WB)
+        self.write(CMD_LUT_WW,WW)
+        self.write(CMD_LUT_BB,BB)
 
     # Change the speed once the driver is already initialized.
     # Sometimes in an application there are updates we want to do
@@ -627,18 +644,18 @@ class UC8151:
         if blocking == False and self.is_busy(): return False
 
         # At the first refresh with a no-flickering mode, and also
-        # every N refreshes, do a full refresh.
-        if self.update_count % self.full_update_period == 0 and \
-           self.no_flickering:
-            self.set_waveform_lut(min(2,self.speed),False)
+        # every N refreshes, do a full refresh. Unless it's set to 0.
+        do_full_update = self.full_update_period != 0 and \
+                         self.update_count % self.full_update_period == 0 and \
+                         self.no_flickering
+
+        if do_full_update: self.set_waveform_lut(min(2,self.speed),False)
 
         self.send_image(fb)
         self.write(CMD_DRF) # Start refresh cycle.
 
         # Load back the no-flickering LUTs if we forced a flickered refresh.
-        if self.update_count % self.full_update_period == 0 and \
-           self.no_flickering:
-            self.set_waveform_lut()
+        if do_full_update: self.set_waveform_lut()
 
         if blocking: self.wait_and_switch_off()
         self.update_count += 1
