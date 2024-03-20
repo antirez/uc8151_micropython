@@ -224,7 +224,7 @@ But please, read more to the next section...
 
 You may be wondering, for WW and BB lookup tables, **why we don't reaffirm the pixel status instead**? This would gretly improve the situation, as even if a pixel is white, we apply a voltage to make sure it remains white. If we do that, what happens is that such pixel, that sees a DC current applied basically, always in the same sense, or more in one sense than in the other, starts to permanently polarize. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
 
-I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only when there was some animation: actually these are the only pixels that are ok!
+I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only where there was some animation: actually these are the only pixels that are ok!
 
 How to avoid this issues? Well, simply we need to use charge-neutral BB and WW LUTs. Either don't do anything, or if you apply voltages, apply them in the same amount in one direction and in the other (like in the back-and-forth common update strategy).
 
