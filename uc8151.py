@@ -551,9 +551,11 @@ class UC8151:
     # Change the speed once the driver is already initialized.
     # Sometimes in an application there are updates we want to do
     # at high quality, other updates we want to do faster.
-    def set_speed(self,new_speed,no_flickering=None):
+    def set_speed(self,new_speed,*,no_flickering=None,full_update_period=None):
         if no_flickering != None:
             self.no_flickering = no_flickering
+        if full_update_period != None:
+            self.full_update_period = full_update_period
         self.speed = new_speed
         self.set_panel_configuration()
         self.set_waveform_lut()
