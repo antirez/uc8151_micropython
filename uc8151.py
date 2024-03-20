@@ -239,13 +239,6 @@ class UC8151:
 
         # Soft reset
         self.write(CMD_PSR,RESET_SOFT)
-        self.wait_ready()
-
-        # Setup the pain manel configuration
-        self.set_panel_configuration()
-
-        # Set the lookup tables depending on the speed.
-        self.set_waveform_lut()
 
         # Here we set the voltage levels that are used for the low-high
         # transitions states, driven by the waveforms provided in the
@@ -265,8 +258,9 @@ class UC8151:
              0b100110, # -10v VDL
              0b000011  # VDHR default (For red pixels, not used here)
              ])
-        self.write(CMD_PON)
-        self.wait_ready()
+
+        # Set the lookup tables depending on the speed.
+        self.set_waveform_lut()
 
         # Booster soft start configuration.
         self.write(CMD_BTST, \
@@ -274,10 +268,22 @@ class UC8151:
              START_10MS | STRENGTH_3 | OFF_6_58US,
              START_10MS | STRENGTH_3 | OFF_6_58US])
 
+        # Power on
+        self.write(CMD_PON)
+
+        # Setup the pain manel configuration
+        self.set_panel_configuration()
+
         # Setup the duration (in frames) for the discharge executed for
         # power-off. This is useful to left the pixels in a "stable"
         # configuration. One frame means 10 milliseconds at 100 HZ.
-        self.write(CMD_PFS,FRAMES_1)
+        #
+        # At 100 HZ one frame time may not be enough. It was experimentally
+        # observed that the display is more stable after being completely
+        # disconnected if we use a 40 millisecond delay. There is a cost
+        # for this of course: more latency in functions executing the POF
+        # command.
+        self.write(CMD_PFS,FRAMES_4)
 
         # Use the internal temperature sensor. Unfortunately there is
         # no input line connected, so we can't read the temperature.
@@ -309,7 +315,6 @@ class UC8151:
         # Power off the display. We will pover on it again on the
         # next update of the image.
         self.write(CMD_POF)
-        self.wait_ready()
 
     # This function is only for debugging. We use computed LUTs, however
     # it is quite handy in order to experiment with different display
@@ -658,13 +663,14 @@ class UC8151:
     # framebuffers fb1 and fb2. For three grey levels, we set the
     # before/after bits in order to trigger the WW/BB/WB conditions,
     # so that we assign to each of this LUTs the waveform needed to
-    # generate a different level of greys. We use BW for pixels that were
-    # already set in past iterations and should not be toched.
+    # generate a different level of grey. We use BW for pixels that
+    # should not be toched (either set in past iterations or yet to be
+    # set with a different level of grey than level,level+1,level+2).
     # 
     # Using this trick, we can set the pixels of three different levels
     # of greys in the same update. The image to render should be in
     # 'grey', where each byte maps to a pixel: higher values means
-    # a more intense level of grey.
+    # a more lighter level of grey.
     #
     # The three level of greys that this function will match are
     # given by 'level': from level to level+2 inclusive.
@@ -701,8 +707,25 @@ class UC8151:
                 fb2[byte] |= bit
         return anypixel
 
-    def load_greyscale_image(self,filename,greyscale):
+    # Load and render the greyscale image specified. The
+    # image format must be: 4 bytes WWHH width,height
+    # unsigned 16 bit, big endian. Followed by width*height
+    # bytes. Each byte is a pixel with color 0 (black) to
+    # 255 (white).
+    def load_greyscale_image(self,filename,greyscale=16):
+        # Read image data.
+        f = open(filename,"rb")
+        f.read(4)
+        imgdata = bytearray(self.width*self.height)
+        f.readinto(imgdata)
+        print("Image max luminance:",max(imgdata))
+        self.update_greyscale(imgdata,greyscale)
 
+    # Update the display in greyscale "faked mode" using the image
+    # into the framebuffer "buffer". The buffer should be width*height
+    # pixels (depending on the display size) bytes. Each byte has
+    # a value in the range 0-255, from black to white.
+    def update_greyscale(self,buffer,greyscale):
         greyscales = [32,16,8,4] # Must be power of 2.
         frames_to_black = 32 # Frames needed to go from white to black, using
                              # a too large number may damage the display, but
@@ -714,13 +737,6 @@ class UC8151:
         # Amount of right shifting to convert 0-255 grey value to
         # 0-(greyscale-1) value.
         shift = 3+greyscales.index(greyscale)
-
-        # Read image data.
-        f = open(filename,"rb")
-        f.read(4)
-        imgdata = bytearray(self.width*self.height)
-        f.readinto(imgdata)
-        print("Image max luminance:",max(imgdata))
 
         # Prepare the display: we want it to be white, and we want the
         # registers LUTs to be selected (all speeds but speed 0).
@@ -744,7 +760,7 @@ class UC8151:
         for g in range(0,greyscale,3):
             # Resort to a faster method in Viper to set the pixels for the
             # current greyscale level.
-            anypixel = self.set_pixels_for_greyscale(imgdata,self.raw_fb,fb2,self.width,self.height,shift,g+1)
+            anypixel = self.set_pixels_for_greyscale(buffer,self.raw_fb,fb2,self.width,self.height,shift,g+1)
             if anypixel:
                 # Transfer the "old" image, so that for difference
                 # with the new we transfer via .update() we create
@@ -781,6 +797,7 @@ class UC8151:
 
         # Restore a normal LUT based on configured speed.
         self.set_speed(orig_speed,no_flickering=orig_no_flickering)
+        self.wait_and_switch_off()
 
     # Fade off effect.
     def fade_out(self,blocking=True):
@@ -815,8 +832,10 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    eink.load_greyscale_image("dama.grey",16)
-    #eink.load_greyscale_image("hopper.grey")
+    #eink.load_greyscale_image("dama.grey",4)
+    eink.load_greyscale_image("dama.grey",8)
+    #eink.load_greyscale_image("dama.grey",16)
+    #eink.load_greyscale_image("dama.grey",32)
     STOP
 
     # eink.set_handmade_lut()
