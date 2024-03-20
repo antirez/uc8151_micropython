@@ -502,7 +502,9 @@ class UC8151:
         # voltages for each pixel. This is VERY important to make sure
         # the display microparticles don't get permanently damaged.
 
-        if speed <= 3 and self.no_flickering == False:
+        if speed <= 3 and no_flickering == False:
+            # For low speed everything is charge-neutral, even WB/BW.
+
             # Phase 1: long go-inverted-color.
             self.set_lut_row(VCOM,0,pat=0,dur=[period,0,0,0],rep=2)
             self.set_lut_row(BW,0,pat=0b01_000000,dur=[period,0,0,0],rep=2)
@@ -526,9 +528,10 @@ class UC8151:
             # For greater than 3 we use non charge-neutral LUTs for WB/BW
             # since the inpulse is short and it gets reversed when the
             # pixel changes color, so that's not a problem for the display,
-            # however we need to use charge-neutral LUTs for WW/BB.
+            # however we still need to use charge-neutral LUTs for WW/BB.
 
-            # Phase 1: short go-inverted-color, long go-target-color.
+            # Phase 1 for BW/WB. Just go to target color.
+            # Phase 1 for WW/BB. Invert, go back.
             p = period
             self.set_lut_row(VCOM,0,pat=0,dur=[p,p,p,p],rep=1)
             self.set_lut_row(BW,0,pat=0b10_00_00_00,dur=[p*4,0,0,0],rep=1)
@@ -553,12 +556,13 @@ class UC8151:
             self.clear_lut(BB)
 
         if self.debug:
-            print(f"LUTs for speed {self.speed} no_flickering {self.no_flickering}:")
+            print(f"LUTs for speed {speed} no_flickering {no_flickering}:")
             self.show_lut(BW,"BW")
             self.show_lut(WB,"WB")
             self.show_lut(WW,"WW")
             self.show_lut(BB,"BB")
 
+        # Set the LUTs into the display registers.
         self.write(CMD_LUT_VCOM,VCOM)
         self.write(CMD_LUT_BW,BW)
         self.write(CMD_LUT_WB,WB)
