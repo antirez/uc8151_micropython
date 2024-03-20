@@ -32,71 +32,104 @@ eink.update()
 
 The driver allocates a 1-bit framebuffer in the `fb` attribute of the object, so you can draw into it with and call `update()` in order to refresh the display, see the MicroPython framebuffer class documentation to check all the drawing primitives you have at your disposal.
 
-## Changing speed and enabling anti flickering
+## Changing speed and enabling anti-flickering
 
 When creating the instance of the driver, it is possible to pass the following parameters:
 * `speed`, from 1 to 6. This is the refresh speed of the dispaly. When 0 is used, the display uses the internal waveforms: this provides great quality and uses the temperature adjusted waveforms, but it is very slow. From 1 to 6 (floating point values possible! Since the LUTs waveforms are computed and not fixed) progressively faster LUTs are used. See the table below for the refresh time at each speed.
 * `anti_flickering` can be True or False. Default is False. When enabled, the display will not flicker in the way normally done by e-paper displays when updating, with even the non updated pixels turning the reverse color a few times back and forth. Only the upated pixels will flicker and change state. In applications like a clock, or in general when there is a high refresh rate of something "moving", this update style is a lot more nice to see. However with this system ghosting tends to accumulate, so from time to time the display will perform a full refresh.
+* `full_update_period`, the number non-flickered updates after which a flickered update is performed when `no_filcerking` mode is enabled. Normally set to 50, but you can change it via the API above. Setting it to 0 means: never do a flickered update, which also works, but the background may look uneven and in the long run the image stored at never touched pixels will wash out.
 
-It is possible to change speed and flickering mode at runtime:
+It is also possible to change speed and flickering mode at runtime:
 
     eink.set_speed(new_speed,*,no_flickering=None,full_update_period=None)
 
-The full update period (the number non flickered updates after a flickered update is performed in `no_filcerking` mode) is normally set to 50, but you can
-change it via the API above.
+Update latecy:
+
+```
+Speed:2 no_flickering:False -> 1998ms
+Speed:2 no_flickering:True  -> 1354ms
+Speed:3 no_flickering:False -> 1032ms
+Speed:3 no_flickering:True  ->  710ms
+Speed:4 no_flickering:False ->  389ms
+Speed:4 no_flickering:True  ->  389ms
+Speed:5 no_flickering:False ->  227ms
+Speed:5 no_flickering:True  ->  227ms
+Speed:6 no_flickering:False ->  148ms
+Speed:6 no_flickering:True  ->  147ms
+```
+
+Speed 0 and 1 are very slow, most of the times not worth using. However note that speed 0 uses internal LUTs that are temperature adjusted, so if you have an application that will not run at room temperature, you may need to use speed 0.
 
 ## Partial updates
 
-TODO
+TODO: the display API is trivial, but there is to evaluate how to implement this feature, if to use specialized LUTs and so forth. Currently it is very rarely useful, because this driver has fast LUTs and no flickering modes.
 
 ## Displaying greyscale images
 
-TODO:
-* .gs8 image example.
-* framebuffer example.
+This driver can show greyscale images. There is a tool to convert PNG files to `gs8` files that the driver can read. You can find it inside the `png2gs8` directory, together with a README explain its usage.
 
-## Speed and flickering settings
+For example try this:
 
-TODO: List different speeds, times, the kind of strategy used by LUTs and so forth.
+    mpremote cp png2gs8/dama.gs8 :
+    mpremote cp uc8151.py :
+    mpremote run demo_greyscale.py
+
+The image if the famous painting *Dama con ermellino* by Leonardo D'Avinci will be displayed in 4, 8, 16 and 32 colors, one after the other.
+
+The demo uses just this simple call (with 16 greys, in the example):
+
+    eink.load_greyscale_image("dama.grey",16)
+
+It is possible to display regular GS8 framebuffers, too.
+
+    fb = bytearray(128*296)
+
+    # ... draw in the framebuffer: each byte is one pixel ...
+    # fb[y*width+x] = color
+    # Alternatively allocate a MicroPython GS8 framebuffer.
+
+    # Then draw the framebuffer on the screen:
+    eink.update_greyscale(fb,32)
 
 # What I learned about setting waveforms/LUTs for EDPs
 
-The world of epaper displays is one of the most undocumented you can find: this is one of the unfortunate side effects of patented technologies, there is a strong incentive to avoid disclosing useful information, with the effect of slowing down software progresses towards programming these kind of displays. The only source of information is:
+The world of e-paper displays is one of the most undocumented you can find: this is the unfortunate side effects of patented technologies, as there is a strong incentive to avoid disclosing useful information, with the effect of slowing down software progresses towards programming these kind of displays. The only source of information I was able to find:
 
 * Datasheets, but these tend to have zero information about programming waveforms.
-* Other drivers LUTs, that are often obtained by trial and error.
-* [Patents](https://patents.google.com/?assignee=E+Ink+Corp)! To protect their technologies, companies have to publish certain details about how they work. There are [a few](https://patentimages.storage.googleapis.com/0a/92/af/0da9da0ee16dfd/US11049463.pdf) describing in details how waveforms work.
+* Other drivers LUTs, that are often obtained by trial and error or copied verbatim from tables provided by vendors.
+* [Patents](https://patents.google.com/?assignee=E+Ink+Corp)! To protect their technologies, companies have to publish certain details about how they work. There are [a few](https://patentimages.storage.googleapis.com/0a/92/af/0da9da0ee16dfd/US11049463.pdf) describing in detail how waveforms work. Still key information is missing.
 
-But in general there isn't much available. Now, to start, a quick reminder on how these displays work:
+Anyway, let's start with a quick reminder on how these displays work:
 
 
 ```
     VCOM   (common voltage)
 ============  <- transparent layer
- +  + ++  +
-  +  +   +
+ +  +  +   +
+  +  +   +    <- positively polarized microcapsules.
++   +  +  +
  -   -   - 
+   -   -   -  <- negatively polarized microcapsules.
   -  -   -
 ============  <- back of the display
   V+ or V- (pixel voltage)
+
 ```
 
-Basically black and white EPDs have white and black microspheres that are
+Basically black and white EPDs have white and black microcapsules that are
 charged in the opposite way. By controlling the VCOM (that is a voltage
-common for all the dispaly) and the single pixel voltage, we can attract/repuse white and black particles. So if a current is applied in one direction, black microspheres will go up and be visible, otherwise white particles go up and the pixel will be blank.
+common for all the display) and the single pixel voltage, we can attract/repuse white and black particles. So if a current is applied in one direction, black microcapsules will go up and be visible, otherwise white particles go up and the pixel will be lighter.
 
 The chips driving these displays are very configurable, and let us select
-the voltages to apply to both VCOM and each pixel as a sequence in a table
-(the lookup tables, that is, LUTs).
+the voltages to apply to both VCOM and the one for each pixel. The sequence
+of voltages to apply is stored in lookup tables called waveform LUTs.
 
-There isn't just a lookup table, but five of them. One is for VCOM, the other
-four is for the pixels, because pixels, when updating the display, can be in
-different four states:
+There isn't just a lookup table, but five of them. One is for VCOM (the common voltage), the other four are for the pixels, because pixels, when updating the display, can be in four different states:
 
-* WW LUT: The pixel was black, and should remain black.
-* BB LUT: The pixel was white, and souold remain black.
-* WB LUT: The pixel was black, and should turn black.
-* BW LUT: The pixel was white, and should turn white.
+* WB LUT is used if the pixel was black, and should turn black.
+* BW LUT is used if the pixel was white, and should turn white.
+* WW LUT is used if the pixel was black, and should remain black.
+* BB LUT is used if the pixel was white, and souold remain black.
 
 This means that we can apply a different waveform for each of these
 states, and that's very handy indeed.
@@ -106,18 +139,88 @@ states, and that's very handy indeed.
 Lookup tables for each of the above, are 6x7 matrixes of bytes.
 This is an exmaple of LUT for the WB change:
 
-          0x66, 0x02, 0x02, 0x00, 0x00, 0x01,
-          0x55, 0x02, 0x02, 0x03, 0x00, 0x02,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    0x80, 0x20, 0x00, 0x00, 0x00, 0x02,
+    0x60, 0x10, 0x10, 0x03, 0x00, 0x01,
+    0x40, 0x20, 0x00, 0x00, 0x00, 0x02,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 
+For each row, the meaning is:
+
+    |op1|op2|op3|op4| frames1 frames2 frames3 frams4 repeat
+
+* The first byte represents four operations (currents to apply), as 2 bit integeters.
+* The following four bytes is the amount of time, in frames, each voltage should be hold. In this driver we set the display to 100HZ, so a frame duration is 10 milliseconds. If the duration is 0 frames, the corresponding operation is skipped.
+* The final byte is the number of times the sequence of four operations should be repeated.
+
+For example let's look at the second row. 0x60 in binary is `01|10|00|00`. The meaning of the two bits sequence is:
+
+    00 - Put to ground
+    01 - Put to VDH voltage (10v in our config): pixel becomes black
+    10 - Put to VDL voltage (-10v in our config): pixel becomes white
+    11 - Floating / Not used.
+
+Note that the voltage applied for VDH/VDL depends on the power configuration set, so the above is just what this driver uses. Other drivers use 11V. And other drivers don't set the DCOM to just a fixed -0.10v voltage, so also exploit setting DCOM to a different voltage as the pixel voltage is modulated.
+
+But let's return back to our row:
+
+    0x60, 0x10, 0x10, 0x03, 0x00, 0x01,
+
+So we have, 01 for 0x10 (16) frames, then 10 for 0x10 (16) frames. This is the part of the LUT that will make the display "flash". It basically means: invert the color to the reverse of what our target color is (since this is the WB LUT, so white to black), then go back to the target color.
+
+Normally conservative LUTs are designed to do something like this, for all the pixles in all the LUTs (WB, BW, WW, BB):
+
+1. Invert the color of the pixel compared to target.
+2. Go to the right color, then invert again.
+3. Finally go to the target color.
+
+The idea is that with the inversions we move the microcapsules to a known state, then we finally set the right color.
+
+## Faster LUTs
+
+However, especially at room temperature, we can apply much shorter frame durations compared to what is normally used. The effect is less convincing blacks and whites on the screen, and ghosting, since a long back-and-forth among the two colors guarantees to clean up the old pixel setup completely. This allows us to go much faster, as you can see yourself in this driver.
+
+But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. However fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color. What we do in this driver is just that, when no flickering mode is selected, we put the pixels to ground during the update, and that's it... at the cost of ghosting. Why? Because normally, even if some ghosting remains, at each successive update when WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur into two problems:
+
+1. As I said, ghosting.
+2. With enough time, never touched pixels may wash up and look more pale.
+
+So this driver, when a non flickering mode is selected, by default does a fully flickered update at speed 2 each 50 updates. In order to refresh thigs a bit :D
+
+But please, read more to the next section...
+
+# Burn-ins due to wrong LUTs
+
+You may be wondering, for WW and BB lookup tables, **why we don't reaffirm the pixel status instead**? This would gretly improve the situation, as even if a pixel is white, we apply a voltage to make sure it remains wait. If we do that, what happens is that such pixel, that sees a DC current applied basically, always in the same sense, or more in one sense than in the other, starts to permanently polarize. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
+
+I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only when there was some animation: actually these are the only pixels that are ok!
+
+How to avoid this issues? Well, simply we need to use charge-neutral BB and WW LUTs. Either don't do anything, or if you apply voltages, apply them in the same amount in one direction and in the other (like in the back-and-forth common update strategy).
+
+* This driver uses charge-netural LUTs for WW,BB, WB and BW at speed up to three.
+* For speeds > 3 and when non flickered modes are selected, we use charge-neutral LUTs for WW and BB, and non charge neutral LUTs for WB and BW.
+
+Is it a problem to use non charge neutral tables for WB and BW? In my tests, not, because if we apply an unbalanced waveform to a given pixel when it turns from black to white, when it changes color we will apply *the reverse and symmetrical waveform*, hence the sum is zero.
+
+This is how the tables are set for fast modes at the time of this writing:
+
+```
+self.set_lut_row(VCOM,0,pat=0,dur=[p,p,p,p],rep=1)
+self.set_lut_row(BW,0,pat=0b10_00_00_00,dur=[p*4,0,0,0],rep=1)
+self.set_lut_row(WB,0,pat=0b01_00_00_00,dur=[p*4,0,0,0],rep=1)
+self.set_lut_row(WW,0,pat=0b01_10_00_00,dur=[p*2,p*2,0,0],rep=1)
+self.set_lut_row(BB,0,pat=0b10_01_00_00,dur=[p*2,p*2,0,0],rep=1)
+```
+
+* black to white -> just go to white direction.
+* white to black -> jus tgo to black direction.
+* white to white, black to black -> back and forth of the same duration.
 
 ## Generating grey levels
 
-The e-paper display on the badger (and many other cheap EPDs) use chips that are not able to display different levels of greys. To do so, they would require to have separated waveform lookup tables for different levels of greys, more on-chip memory available, and so forth. However these displays are physically capable of pruducing pixels with a mix of white and black microparticles exactly like greyscale capable displays.
+The e-paper display on the badger (and many other cheap EPDs) use chips that are not able to display different levels of greys. To do so, they would require to have separated waveform lookup tables for different levels of greys, more on-chip memory available, and so forth. However these displays are physically capable of pruducing pixels with a mix of white and black microcapsules exactly like greyscale capable displays.
 
 This driver creates ad-hoc lookup tables that will drive pixels half-way from white to black, depending on the grey to be obtained, one grey after the other, not touching the pixels already set to a different level of grey. To speedup things 3x, a trick is used: the display can update four sets of pixels at the same time, depending on the state change between the OLD and NEW bitmap images stored inside the display video memory. We can provide four different LUTS for the transition from white to white, black to white and so forth (WW, BB, WB, BW). This means that we can set three differnet greys at the same time, and use one of the transition for the pixels that are already set.
 
