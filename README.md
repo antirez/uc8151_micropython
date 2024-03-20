@@ -220,7 +220,7 @@ So this driver, when a non flickering mode is selected, by default does a fully 
 
 But please, read more to the next section...
 
-# Burn-ins due to wrong LUTs
+## Burn-ins due to wrong LUTs
 
 You may be wondering, for WW and BB lookup tables, **why we don't reaffirm the pixel status instead**? This would gretly improve the situation, as even if a pixel is white, we apply a voltage to make sure it remains wait. If we do that, what happens is that such pixel, that sees a DC current applied basically, always in the same sense, or more in one sense than in the other, starts to permanently polarize. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
 
