@@ -211,7 +211,7 @@ The idea is that with the inversions we move the microcapsules to a known state,
 
 However, especially at room temperature, we can apply much shorter frame durations compared to what is normally used. The effect is less convincing blacks and whites on the screen, and ghosting, since a long back-and-forth among the two colors guarantees to clean up the old pixel setup completely. This allows us to go much faster, as you can see yourself in this driver.
 
-But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. Fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color: this way most of the image, the one that remains unchanged, will not flicker anymore. What we do in this driver is just that: when no flickering mode is selected, we put the unchanged pixels to ground during the update, and that's it... at the cost of ghosting. Why this creates ghosting, after all we are not touching such pixels? Because normally, even if some ghosting remains (it's part of the game), at each successive update when WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur indeed into two problems:
+But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. Fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color: this way most of the image, the one that remains unchanged, will not flicker anymore. What we do in this driver is just that: when no flickering mode is selected, we put the unchanged pixels to ground during the update, and that's it... at the cost of ghosting. Why this creates ghosting? After all we are not touching such pixels. Well, normally, even if some ghosting remains (it's part of the game with EPDs) at each successive update when the WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur indeed into two unwanted effects:
 
 1. As I said, ghosting.
 2. With enough time, never touched pixels may wash out and look more pale.
@@ -265,7 +265,7 @@ So to set for example 16 levels of greys:
 This is a list of displays brands / names supported by this driver.
 Please if your display works, send a pull request or just open an issue
 to include it. The list is useful because this driver uses advanced techniques
-and waveforms that not may work in all the displays **even if the display is based on the supported chip** (an exception is when using speed 0 and no greyscale features: in this case the internal display lookup tables are used).
+and waveforms that may not work in all the displays **even if the display is based on the supported chip** (an exception is when using speed 0 and no greyscale features: in this case the internal display lookup tables are used).
 For the above reasons, this list should include only displays that were actually tested by users.
 
 * Pimoroni Badger 2040
