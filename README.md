@@ -10,14 +10,14 @@ This is a MicroPython driver for the Badger 2040 eink display and other displays
 
 This driver is a bit different compared to other drivers for e-paper displays:
 
-* It uses *computed* lookup tables (LUTs) for all update speeds greater than zero (for speed 0, internal OTP LUTs are used). Normally drivers use fixed LUTs tables obtained by other drivers, application notes or hand-made. Computed LUTs allow to provide more refresh modes with different compromises between quality and speed (the speed parameter can be floating point, like 2.5). More than anything else, computed LUTs are **understandable**, and not magical. This approach also uses less MicroPython memory, and makes experimenting with different refresh startegies much easier.
+* It uses *computed* lookup tables (LUTs) for all update speeds greater than zero (for speed 0, internal OTP LUTs are used). Normally drivers use fixed LUTs tables obtained by other drivers, application notes or hand-made. Computed LUTs allow to provide more refresh modes with different compromises between quality and speed (the speed parameter can be floating point, like 2.5). More than anything else, computed LUTs are **understandable**, and not magical. This approach also uses less MicroPython memory, and makes experimenting with different refresh strategies much easier.
 * Anti-flickering refresh modes. If this option is selected, waveform LUTs are modified for special modes where the display will not flicker like normally done by e-ink screens during all-screen updates. This is at the cost of different levels of ghosting (the severity of ghosting depends on speed). I just happen to hate the flickering much more than the delay of EPDs, and in general for many applications (imagine a clock) the flickering ruins the party. In this modes, from time to time the display performs a full flickered refresh to start again with a fresh image.
-* This driver supports displaying images with **up to 32 levels of greys!**, even if the display itself is monochome. The technique I used is documented below.
-* The driver is commented in the details of what it does with the chip. So reading it you can learn how the display is setup and used.
-* The fast modes still use 100HZ in this driver, not the 200HZ mode: it works better in my tests and may be easier on the display hardware.
+* This driver supports displaying images with **up to 32 levels of greys!**, even if the display itself is monochrome. The technique I used is documented below.
+* The driver is commented in the details of what it does with the chip. So reading it you can learn how the display is set up and used.
+* The fast modes still use 100Hz in this driver, not the 200Hz mode: it works better in my tests and may be easier on the display hardware.
 * We use +10V high/low voltage, and the common voltage is set to the default value as well (-0.1V). Other drivers use 11V and/or different DCOM voltages to improve contrast, and may stress the hardware a little more.
 
-Other then the above technical changes, the goal of this driver, especially for the MicroPython users and Badger 2040 owners, is to provide an alternative to the official Badger software in order to use the latest official Rasperry Pico MicroPython installs. The Badger software provided by Pimoroni is cool, but if you want to do your own project with the display, using updated MicroPython versions and maximum freedom, to have a stand-alone and fast pure-MP driver is handy.
+Other than the above technical changes, the goal of this driver, especially for the MicroPython users and Badger 2040 owners, is to provide an alternative to the official Badger software in order to use the latest official Raspberry Pico MicroPython installs. The Badger software provided by Pimoroni is cool, but if you want to do your own project with the display, using updated MicroPython versions and maximum freedom, to have a stand-alone and fast pure-MP driver is handy.
 
 # Usage
 
@@ -80,7 +80,7 @@ TODO: the display API is trivial, but there is to evaluate how to implement this
 
 ## Displaying greyscale images
 
-This driver can show greyscale images. There is a tool to convert PNG files to `gs8` files that the driver can read. You can find it inside the `png2gs8` directory, together with a README explain its usage.
+This driver can show greyscale images. There is a tool to convert PNG files to `gs8` files that the driver can read. You can find it inside the `png2gs8` directory, together with a README explaining its usage.
 
 For example try this:
 
@@ -88,7 +88,7 @@ For example try this:
     mpremote cp uc8151.py :
     mpremote run demo_greyscale.py
 
-The image if the famous painting *Dama con ermellino* by Leonardo D'Avinci will be displayed in 4, 8, 16 and 32 colors, one after the other.
+The image of the famous painting *Dama con ermellino* by Leonardo Da Vinci will be displayed in 4, 8, 16 and 32 colors, one after the other.
 
 The demo uses just this simple call (with 16 greys, in the example):
 
@@ -147,7 +147,7 @@ Anyway, let's start with a quick reminder on how these displays work:
 
 Basically black and white EPDs have white and black microcapsules that are
 charged in the opposite way. By controlling the VCOM (that is a voltage
-common for all the display) and the single pixel voltage, we can attract/repuse white and black particles. So if a current is applied in one direction, black microcapsules will go up and be visible, otherwise white particles go up and the pixel will be lighter.
+common for all the display) and the single pixel voltage, we can attract/repulse white and black particles. So if a current is applied in one direction, black microcapsules will go up and be visible, otherwise white particles go up and the pixel will be lighter.
 
 The chips driving these displays are very configurable, and let us select
 the voltages to apply to both VCOM and the one for each pixel. The sequence
@@ -158,15 +158,15 @@ There isn't just a lookup table, but five of them. One is for VCOM (the common v
 * WB LUT is used if the pixel was black, and should turn black.
 * BW LUT is used if the pixel was white, and should turn white.
 * WW LUT is used if the pixel was black, and should remain black.
-* BB LUT is used if the pixel was white, and souold remain black.
+* BB LUT is used if the pixel was white, and should remain black.
 
 This means that we can apply a different waveform for each of these
 states, and that's very handy indeed.
 
 ## Lookup table format
 
-Lookup tables for each of the above, are 6x7 matrixes of bytes.
-This is an exmaple of LUT for the WB change:
+Lookup tables for each of the above, are 6x7 matrices of bytes.
+This is an example of LUT for the WB change:
 
     0x80, 0x20, 0x00, 0x00, 0x00, 0x02,
     0x60, 0x10, 0x10, 0x03, 0x00, 0x01,
@@ -180,7 +180,7 @@ For each row, the meaning is:
 
     |op1|op2|op3|op4| frames1 frames2 frames3 frams4 repeat
 
-* The first byte represents four operations (currents to apply), as 2 bit integeters.
+* The first byte represents four operations (currents to apply), as 2 bit integers.
 * The following four bytes is the amount of time, in frames, each voltage should be hold. In this driver we set the display to 100HZ, so a frame duration is 10 milliseconds. If the duration is 0 frames, the corresponding operation is skipped.
 * The final byte is the number of times the sequence of four operations should be repeated.
 
@@ -199,7 +199,7 @@ But let's return back to our row:
 
 So we have, 01 for 0x10 (16) frames, then 10 for 0x10 (16) frames. This is the part of the LUT that will make the display "flash". It basically means: invert the color to the reverse of what our target color is (since this is the WB LUT, so white to black), then go back to the target color.
 
-Normally conservative LUTs are designed to do something like this, for all the pixles in all the LUTs (WB, BW, WW, BB):
+Normally conservative LUTs are designed to do something like this, for all the pixels in all the LUTs (WB, BW, WW, BB):
 
 1. Invert the color of the pixel compared to target.
 2. Go to the right color, then invert again.
@@ -222,13 +222,13 @@ But please, continue reading the next section to know the full story.
 
 ## Burn-ins due to wrong LUTs
 
-You may be wondering, for WW and BB lookup tables, **why don't we reaffirm the pixel status instead**? This would gretly improve the situation, as, even if a pixel is white and will stay white, we could apply the voltage needed to make sure it remains white, and clean any ghosting as well. If we do that, what happens to that pixel is that it sees a DC current applied always in the same sense (or more in one sense than in the other), the result is that it starts to semi-permanently polarize in one direction. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
+You may be wondering, for WW and BB lookup tables, **why don't we reaffirm the pixel status instead**? This would greatly improve the situation, as, even if a pixel is white and will stay white, we could apply the voltage needed to make sure it remains white, and clean any ghosting as well. If we do that, what happens to that pixel is that it sees a DC current applied always in the same sense (or more in one sense than in the other), the result is that it starts to semi-permanently polarize in one direction. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistance being *biased* towards one polarization.
 
-I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only where there was some animation: actually these are the only pixels that are ok!
+I think that this effect in the past tricked a few people believing that with modified LUTs they observed burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only where there was some animation: actually these are the only pixels that are OK!
 
 How to avoid this issue? Well, we simply need to use charge-neutral BB and WW LUTs. For pixels that are not going to change color, either don't do anything (put to ground), or if you apply voltages, apply them in the same amount in one direction and in the other (like in the back-and-forth common update strategy of EPDs).
 
-* This driver uses charge-netural LUTs for WW,BB, WB and BW at speed up to three.
+* This driver uses charge-neutral LUTs for WW,BB, WB and BW at speed up to three.
 * For speeds > 3 and when non flickered modes are selected, we use charge-neutral LUTs for WW and BB, and non charge neutral LUTs for WB and BW.
 
 Is it a problem to use non charge neutral tables for WB and BW? In my tests, not, because if we apply an unbalanced waveform to a given pixel when it turns from black to white, when it changes color we will apply *the reverse and symmetrical waveform*, hence the sum is zero.
@@ -244,14 +244,14 @@ self.set_lut_row(BB,0,pat=0b10_01_00_00,dur=[p*2,p*2,0,0],rep=1)
 ```
 
 * black to white -> just go to white direction.
-* white to black -> jus tgo to black direction.
+* white to black -> just go to black direction.
 * white to white, black to black -> back and forth of the same duration.
 
 ## Generating grey levels
 
-The e-paper display on the badger (and many other cheap EPDs) use chips that are not able to display different levels of greys. To do so, they would require to have separated waveform lookup tables for different levels of greys, more on-chip memory available, and so forth. However these displays are physically capable of pruducing pixels with a mix of white and black microcapsules exactly like greyscale capable displays.
+The e-paper display on the badger (and many other cheap EPDs) use chips that are not able to display different levels of greys. To do so, they would require to have separated waveform lookup tables for different levels of greys, more on-chip memory available, and so forth. However these displays are physically capable of producing pixels with a mix of white and black microcapsules exactly like greyscale capable displays.
 
-This driver creates ad-hoc lookup tables that will drive pixels half-way from white to black, depending on the grey to be obtained, one grey after the other, not touching the pixels already set to a different level of grey. To speedup things 3x, a trick is used: the display can update four sets of pixels at the same time, depending on the state change between the OLD and NEW bitmap images stored inside the display video memory. We can provide four different LUTS for the transition from white to white, black to white and so forth (WW, BB, WB, BW). This means that we can set three differnet greys at the same time, and use one of the transition for the pixels that are already set.
+This driver creates ad-hoc lookup tables that will drive pixels half-way from white to black, depending on the grey to be obtained, one grey after the other, not touching the pixels already set to a different level of grey. To speedup things 3x, a trick is used: the display can update four sets of pixels at the same time, depending on the state change between the OLD and NEW bitmap images stored inside the display video memory. We can provide four different LUTS for the transition from white to white, black to white and so forth (WW, BB, WB, BW). This means that we can set three different greys at the same time, and use one of the transition for the pixels that are already set.
 
 So to set for example 16 levels of greys:
 
@@ -263,10 +263,10 @@ So to set for example 16 levels of greys:
 # List of supported displays
 
 This is a list of displays brands / names supported by this driver.
-Please if your dispaly works, send a pull request or just open an issue
+Please if your display works, send a pull request or just open an issue
 to include it. The list is useful because this driver uses advanced techniques
 and waveforms that not may work in all the displays **even if the display is based on the supported chip** (an exception is when using speed 0 and no greyscale features: in this case the internal display lookup tables are used).
-For the above reasons, this list should include only displays that were actaully tested by users.
+For the above reasons, this list should include only displays that were actually tested by users.
 
-* Pomoroni Badger 2040
-* Pomoroni Pico Inky Pack.
+* Pimoroni Badger 2040
+* Pimoroni Pico Inky Pack.
