@@ -40,8 +40,7 @@ Mirroring can be enabled in both x and y axis with the `mirror_x` and `mirror_y`
 
 To test the driver quickly, do:
 
-    mpremote cp uc8151.py :
-    mpremote run demo_no_flick.py
+    mpremote run uc8151.py
 
 The demo code has pins configured for the Badger 2040.
 
@@ -103,6 +102,21 @@ It is possible to display regular GS8 framebuffers, too.
 
     # Then draw the framebuffer on the screen:
     eink.update_greyscale(fb,32)
+
+This is a complete example using MicroPython Framebuffer, filling the screen with squares of different sizes.
+
+```python
+gs8buf = bytearray(128*296)
+gsfb = framebuf.FrameBuffer(gs8buf,128,296,framebuf.GS8)
+square_id = 0
+for x in range(0,128,128//4):
+    for y in range(0,296,296//8):
+        color = int((255/31)*square_id)
+        gsfb.fill_rect(x,y,128//4,296//8,color)
+        square_id += 1
+
+eink.update_greyscale(gs8buf,32)
+```
 
 # What I learned about setting waveforms/LUTs for EDPs
 
