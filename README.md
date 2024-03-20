@@ -36,6 +36,15 @@ By passing `width` and `height` during the initialization it is possible to set 
 
 Mirroring can be enabled in both x and y axis with the `mirror_x` and `mirror_y` initialization parameters. They are False by default.
 
+## Quick test
+
+To test the driver quickly, do:
+
+    mpremote cp uc8151.py :
+    mpremote run demo_no_flick.py
+
+The demo code has pins configured for the Badger 2040.
+
 ## Changing speed and enabling anti-flickering
 
 When creating the instance of the driver, it is possible to pass the following parameters:
@@ -49,18 +58,18 @@ It is also possible to change speed and flickering mode at runtime:
 
 Update latecy:
 
-```
-Speed:2 no_flickering:False -> 1998ms
-Speed:2 no_flickering:True  -> 1354ms
-Speed:3 no_flickering:False -> 1032ms
-Speed:3 no_flickering:True  ->  710ms
-Speed:4 no_flickering:False ->  389ms
-Speed:4 no_flickering:True  ->  389ms
-Speed:5 no_flickering:False ->  227ms
-Speed:5 no_flickering:True  ->  227ms
-Speed:6 no_flickering:False ->  148ms
-Speed:6 no_flickering:True  ->  147ms
-```
+| Speed | No Flickering | Response Time |
+|-------|---------------|---------------|
+| 2     | False         | 1998ms        |
+| 2     | True          | 1354ms        |
+| 3     | False         | 1032ms        |
+| 3     | True          | 710ms         |
+| 4     | False         | 389ms         |
+| 4     | True          | 389ms         |
+| 5     | False         | 227ms         |
+| 5     | True          | 227ms         |
+| 6     | False         | 148ms         |
+| 6     | True          | 147ms         |
 
 Speed 0 and 1 are very slow, most of the times not worth using. However note that speed 0 uses internal LUTs that are temperature adjusted, so if you have an application that will not run at room temperature, you may need to use speed 0.
 
