@@ -226,7 +226,7 @@ You may be wondering, for WW and BB lookup tables, **why we don't reaffirm the p
 
 I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only where there was some animation: actually these are the only pixels that are ok!
 
-How to avoid this issues? Well, simply we need to use charge-neutral BB and WW LUTs. Either don't do anything, or if you apply voltages, apply them in the same amount in one direction and in the other (like in the back-and-forth common update strategy).
+How to avoid this issue? Well, we simply need to use charge-neutral BB and WW LUTs. For pixels that are not going to change color, either don't do anything (put to ground), or if you apply voltages, apply them in the same amount in one direction and in the other (like in the back-and-forth common update strategy of EPDs).
 
 * This driver uses charge-netural LUTs for WW,BB, WB and BW at speed up to three.
 * For speeds > 3 and when non flickered modes are selected, we use charge-neutral LUTs for WW and BB, and non charge neutral LUTs for WB and BW.
