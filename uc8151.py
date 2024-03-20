@@ -829,13 +829,17 @@ if  __name__ == "__main__":
     spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
     eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2,no_flickering=False)
 
-    #eink.load_greyscale_image("dama.grey",4)
-    eink.load_greyscale_image("dama.grey",8)
-    #eink.load_greyscale_image("dama.grey",16)
-    #eink.load_greyscale_image("dama.grey",32)
-    STOP
+    gs8buf = bytearray(128*296)
+    gsfb = framebuf.FrameBuffer(gs8buf,128,296,framebuf.GS8)
+    square_id = 0
+    for x in range(0,128,128//4):
+        for y in range(0,296,296//8):
+            color = int((255/31)*square_id)
+            gsfb.fill_rect(x,y,128//4,296//8,color)
+            square_id += 1
 
-    # eink.set_handmade_lut()
+    eink.update_greyscale(gs8buf,32)
+    time.sleep(2)
 
     for speed in [2,3,4.3,5]:
         for noflick in [False,True]:
