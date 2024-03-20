@@ -32,6 +32,10 @@ eink.update()
 
 The driver allocates a 1-bit framebuffer in the `fb` attribute of the object, so you can draw into it with and call `update()` in order to refresh the display, see the MicroPython framebuffer class documentation to check all the drawing primitives you have at your disposal.
 
+By passing `width` and `height` during the initialization it is possible to set the other available resolutions supported by the chip. However this driver was tested only with the default 128 x 296 pixels resolution. Yet, there should not be problems with other resolutions.
+
+Mirroring can be enabled in both x and y axis with the `mirror_x` and `mirror_y` initialization parameters. They are False by default.
+
 ## Changing speed and enabling anti-flickering
 
 When creating the instance of the driver, it is possible to pass the following parameters:
