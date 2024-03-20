@@ -6,6 +6,8 @@ This is a MicroPython driver for the Badger 2040 eink display and other displays
 3. [This very useful gist](https://gist.github.com/joeycastillo/4cad38cc8e5cb3d5010265bc1bbd92ba) describing the LUTs layout. The same description is provided in the IL0373 chip datasheet, but the gist is a bit more a tutorial, in case it's the first time you approach e-ink displays and their lookup tables.
 4. Other random bits on the internet.
 
+![Greyscale Badger 2040 demo](images/badger2040_dama_greyscale.jpg)
+
 This driver is a bit different compared to other drivers for e-paper displays:
 
 * It uses *computed* lookup tables (LUTs) for all update speeds greater than zero (for speed 0, internal OTP LUTs are used). Normally drivers use fixed LUTs tables obtained by other drivers, application notes or hand-made. Computed LUTs allow to provide more refresh modes with different compromises between quality and speed (the speed parameter can be floating point, like 2.5). More than anything else, computed LUTs are **understandable**, and not magical. This approach also uses less MicroPython memory, and makes experimenting with different refresh startegies much easier.
