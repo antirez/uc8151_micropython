@@ -211,18 +211,18 @@ The idea is that with the inversions we move the microcapsules to a known state,
 
 However, especially at room temperature, we can apply much shorter frame durations compared to what is normally used. The effect is less convincing blacks and whites on the screen, and ghosting, since a long back-and-forth among the two colors guarantees to clean up the old pixel setup completely. This allows us to go much faster, as you can see yourself in this driver.
 
-But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. However fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color. What we do in this driver is just that, when no flickering mode is selected, we put the pixels to ground during the update, and that's it... at the cost of ghosting. Why? Because normally, even if some ghosting remains, at each successive update when WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur into two problems:
+But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. Fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color: this way most of the image, the one that remains unchanged, will not flicker anymore. What we do in this driver is just that: when no flickering mode is selected, we put the unchanged pixels to ground during the update, and that's it... at the cost of ghosting. Why this creates ghosting, after all we are not touching such pixels? Because normally, even if some ghosting remains (it's part of the game), at each successive update when WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur indeed into two problems:
 
 1. As I said, ghosting.
 2. With enough time, never touched pixels may wash out and look more pale.
 
-So this driver, when a non flickering mode is selected, by default does a fully flickered update at speed 2 each 50 updates. In order to refresh thigs a bit :D
+So to provide non-flickering modes and at the same time work well in long running applications scenarios, this driver (when a non-flickering mode is selected) from time to time does a fully flickered update, at speed 2. This is normally done every 50 updates.
 
-But please, read more to the next section...
+But please, continue reading the next section to know the full story.
 
 ## Burn-ins due to wrong LUTs
 
-You may be wondering, for WW and BB lookup tables, **why we don't reaffirm the pixel status instead**? This would gretly improve the situation, as even if a pixel is white, we apply a voltage to make sure it remains white. If we do that, what happens is that such pixel, that sees a DC current applied basically, always in the same sense, or more in one sense than in the other, starts to permanently polarize. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
+You may be wondering, for WW and BB lookup tables, **why don't we reaffirm the pixel status instead**? This would gretly improve the situation, as, even if a pixel is white and will stay white, we could apply the voltage needed to make sure it remains white, and clean any ghosting as well. If we do that, what happens is that pixel is that it sees a DC current applied always in the same sense (or more in one sense than in the other), the result is that it starts to semi-permanently polarize in one direction. The image of those pixels will start to be visible in the display even after days, because the microcapsules are no longer able to move from one direction to the other easily, as they oppose some resistence being *biased* towards one polarization.
 
 I think that this effect in the past tricked a few people believing that with modified LUTs they osserved burn-ins of the pixels that were moved too fast, while actually they were observing a burn-in of *all* the other pixels instead, but the effect to the naked eye is that you see a problem only where there was some animation: actually these are the only pixels that are ok!
 
