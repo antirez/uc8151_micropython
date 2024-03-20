@@ -214,7 +214,7 @@ However, especially at room temperature, we can apply much shorter frame duratio
 But, irony of life, as we have faster updates, the flashing effect of going back-and-forth becomes very unpleasant. However fortunately we have separated WW and BB tables, so we can apply a different waveform to pixels that are not going to change color. What we do in this driver is just that, when no flickering mode is selected, we put the pixels to ground during the update, and that's it... at the cost of ghosting. Why? Because normally, even if some ghosting remains, at each successive update when WW and BB tables drive the pixels back and forth, the previous images memory will clear. But if we take pixels to the ground, we incur into two problems:
 
 1. As I said, ghosting.
-2. With enough time, never touched pixels may wash up and look more pale.
+2. With enough time, never touched pixels may wash out and look more pale.
 
 So this driver, when a non flickering mode is selected, by default does a fully flickered update at speed 2 each 50 updates. In order to refresh thigs a bit :D
 
