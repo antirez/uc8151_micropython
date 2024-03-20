@@ -822,32 +822,6 @@ class UC8151:
         self.set_speed(orig_speed,no_flickering=orig_no_flickering)
         self.wait_and_switch_off()
 
-    # Fade off effect.
-    def fade_out(self,blocking=True):
-        LUT = bytearray(42)
-        VCOM = bytearray(44)
-        LUT[0] = 0b10_00_00_00
-        LUT[1] = 1 # Frames
-        LUT[2] = 2 # Frames
-        LUT[3] = 2 # Frames
-        LUT[4] = 2 # Frames
-        LUT[5] = 10 # Repeat
-
-        LUT[6] = 0b10_00_00_00
-        LUT[7] = 3 # Frames
-        LUT[11] = 10 # Repeat
-
-        VCOM[1:6] = LUT[1:6]
-        VCOM[7:12] = LUT[7:12]
-        self.write(CMD_LUT_VCOM,VCOM)
-        self.write(CMD_LUT_WW,LUT)
-        self.write(CMD_LUT_BB,LUT)
-        self.write(CMD_LUT_WB,LUT)
-        self.write(CMD_LUT_BW,LUT)
-        empty = bytes(self.width*self.height//8)
-        self.update(blocking=blocking,fb=empty)
-        self.set_waveform_lut()
-
 if  __name__ == "__main__":
     from machine import SPI
     import random
