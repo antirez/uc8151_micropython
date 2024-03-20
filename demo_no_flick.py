@@ -3,7 +3,7 @@ from uc8151 import UC8151
 import math, array, time, random
 
 spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
-eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=3,no_flickering=True,inverted=False,debug=True)
+eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=3,no_flickering=True,inverted=False)
 
 # eink.set_handmade_lut()
 
@@ -47,4 +47,3 @@ while True:
     # the difference.
     if ((tick+1) % 10) == 0:
         eink.set_speed(eink.speed,no_flickering=not eink.no_flickering)
-    time.sleep(1)
