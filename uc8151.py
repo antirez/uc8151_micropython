@@ -143,7 +143,7 @@ HZ_100     = const(0b00111010)
 HZ_200     = const(0b00111001)
 
 class UC8151:
-    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False,debug=False,full_update_period=50):
+    def __init__(self,spi,*,cs,dc,rst,busy,width=128,height=296,speed=0,mirror_x=False,mirror_y=False,inverted=False,no_flickering=False,debug=False,full_update_period=50,dangerous_reaffirm_black=False):
         self.spi = spi
         self.cs = Pin(cs,Pin.OUT) if cs != None else None
         self.dc = Pin(dc,Pin.OUT) if dc != None else None
@@ -153,6 +153,7 @@ class UC8151:
         self.height = height
         self.speed = speed
         self.no_flickering = no_flickering
+        self.dangerous_reaffirm_black = dangerous_reaffirm_black
         self.inverted = inverted
         self.mirror_x = mirror_x
         self.mirror_y = mirror_y
@@ -554,6 +555,13 @@ class UC8151:
         if no_flickering == True:
             self.clear_lut(WW)
             self.clear_lut(BB)
+            # If the user sets the dangerous_reaffirm_black parameter during
+            # the initialization, we very slightly (just two frames) reaffirm
+            # the black pixels in the BB table, so that they will go less
+            # towards greyish color. Potentially this could polarize the
+            # display.
+            if self.dangerous_reaffirm_black:
+                self.set_lut_row(BB,0,pat=0b10_01_10_01,dur=[0,2,0,0],rep=1)
 
         if self.debug:
             print(f"LUTs for speed {speed} no_flickering {no_flickering}:")

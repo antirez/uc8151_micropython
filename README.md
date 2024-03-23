@@ -74,6 +74,16 @@ Update latecy:
 
 Speed 0 and 1 are very slow, most of the times not worth using. However note that speed 0 uses internal LUTs that are temperature adjusted, so if you have an application that will not run at room temperature, you may need to use speed 0.
 
+## Experimental: reaffirming black pixels
+
+When no-flickering is enabled, black pixels tend to lose color and go towards grey. This is normal and is explained in detail in the next sections of this README. Usually we can't do much about it: the driver main goal is to avoid damaging the display by biasing pixels in one direction.
+
+However, if you really want to try your luck (I did and can't see any issue so far), you can use this option during the object initialization:
+
+    dangerous_reaffirm_black = True
+
+Doing so, the BB table (black -> black) will very slightly drive black pixels to black for 20 milliseconds in no-flickering modes. Since the pulse is so short, it is very unlikely to damage the display if not used for a very long time with the same image. When this option is enabled, it is possible to go forward without a full update for a very long time, so setting a full update period of zero becomes possible.
+
 ## Partial updates
 
 TODO: the display API is trivial, but there is to evaluate how to implement this feature, if to use specialized LUTs and so forth. Currently it is very rarely useful, because this driver has fast LUTs and no flickering modes.
