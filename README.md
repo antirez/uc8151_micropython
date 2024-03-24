@@ -165,10 +165,10 @@ of voltages to apply is stored in lookup tables called waveform LUTs.
 
 There isn't just a lookup table, but five of them. One is for VCOM (the common voltage), the other four are for the pixels, because pixels, when updating the display, can be in four different states:
 
-* WB LUT is used if the pixel was black, and should turn black.
-* BW LUT is used if the pixel was white, and should turn white.
-* WW LUT is used if the pixel was black, and should remain black.
-* BB LUT is used if the pixel was white, and should remain black.
+* WB LUT is used if the pixel was white, and should turn black.
+* BW LUT is used if the pixel was black, and should turn white.
+* WW LUT is used if the pixel was white, and should remain white.
+* BB LUT is used if the pixel was black, and should remain black.
 
 This means that we can apply a different waveform for each of these
 states, and that's very handy indeed.
