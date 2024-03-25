@@ -23,6 +23,7 @@ Other than the above technical changes, the goal of this driver, especially for 
 
 ```python
 from machine import SPI, Pin
+from uc8151 import UC8151
 
 spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
 eink = UC8151(spi,cs=17,dc=20,rst=21,busy=26,speed=2)
