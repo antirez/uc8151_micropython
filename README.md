@@ -131,6 +131,24 @@ for x in range(0,128,128//4):
 eink.update_greyscale(gs8buf,32)
 ```
 
+Another example showing how to load a 128x296 GS8 image from a file and draw a
+filled rectangle into some place of the image, using a badger2040 module:
+
+```python
+from machine import SPI, Pin
+from uc8151 import UC8151
+import framebuf
+
+spi = SPI(0, baudrate=12000000, phase=0, polarity=0, sck=Pin(18), mosi=Pin(19), miso=Pin(16))
+eink = UC8151(spi, cs=17, dc=20, rst=21, busy=26, speed=3, no_flickering=True, inverted=False)
+
+buf = eink.load_greyscale_image("dama.gs8", render=False)
+gsfb = framebuf.FrameBuffer(buf, 128, 296, framebuf.GS8)
+gsfb.fill_rect(50, 50, 20, 20, 1)
+eink.update_greyscale(buf, 16)
+```
+
+
 # What I learned about setting waveforms/LUTs for EDPs
 
 The world of e-paper displays is one of the most undocumented you can find: this is the unfortunate side effects of patented technologies, as there is a strong incentive to avoid disclosing useful information, with the effect of slowing down software progresses towards programming these kind of displays. The only source of information I was able to find:

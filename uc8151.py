@@ -738,19 +738,24 @@ class UC8151:
                 fb2[byte] |= bit
         return anypixel
 
-    # Load and render the greyscale image specified. The
+    # Load and optionally render the greyscale image specified. The
     # image format must be: 4 bytes WWHH width,height
     # unsigned 16 bit, big endian. Followed by width*height
     # bytes. Each byte is a pixel with color 0 (black) to
     # 255 (white).
-    def load_greyscale_image(self,filename,greyscale=16):
+    #
+    # The function returns the buffer containing the image,
+    # so one could modify it further if needed.
+    def load_greyscale_image(self,filename,greyscale=16,render=True):
         # Read image data.
         f = open(filename,"rb")
         f.read(4)
         imgdata = bytearray(self.width*self.height)
         f.readinto(imgdata)
         print("Image max luminance:",max(imgdata))
-        self.update_greyscale(imgdata,greyscale)
+        if render:
+            self.update_greyscale(imgdata,greyscale)
+        return imgdata
 
     # Update the display in greyscale "faked mode" using the image
     # into the framebuffer "buffer". The buffer should be width*height
